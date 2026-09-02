@@ -1,0 +1,563 @@
+/**
+ * ================================================================
+ *  NODE CAMERA — ESP32 Mesh Video Streaming (Sender / Leaf Node)
+ * ================================================================
+ *
+ *  Chức năng chính:
+ *  ────────────────
+ *  1. Khởi tạo camera OV3660 ở chế độ JPEG, độ phân giải QVGA
+ *  2. Kết nối vào mạng painlessMesh
+ *  3. Định kỳ chụp ảnh JPEG → cắt thành các chunk 1024 byte
+ *  4. Đóng gói mỗi chunk với Header 12 byte → encode Base64
+ *  5. Gửi từng chunk qua Mesh broadcast về hướng Root Node
+ *
+ *  Phần cứng yêu cầu:
+ *  ──────────────────
+ *  - ESP32-CAM (AI-Thinker) hoặc board ESP32 có camera OV3660
+ *  - PSRAM (4MB) — bắt buộc cho frame buffer camera
+ *
+ *  Thư viện cần cài (Arduino IDE Library Manager):
+ *  ───────────────────────────────────────────────
+ *  - painlessMesh (by painlessMesh team)
+ *  - ArduinoJson (dependency của painlessMesh)
+ *  - TaskScheduler (dependency của painlessMesh)
+ *  - AsyncTCP (dependency của painlessMesh trên ESP32)
+ *
+ *  Cách sử dụng:
+ *  ─────────────
+ *  1. Copy các file mesh_config.h, base64_util.h, chunk_protocol.h
+ *     từ thư mục shared/ vào thư mục node_camera/ (cùng cấp .ino)
+ *  2. Mở node_camera.ino trong Arduino IDE
+ *  3. Chọn Board: "AI Thinker ESP32-CAM"
+ *  4. Bật PSRAM: Tools → PSRAM → "Enabled"
+ *  5. Upload và mở Serial Monitor (115200 baud)
+ *
+ * ================================================================
+ */
+
+#include <painlessMesh.h>
+#include "esp_camera.h"
+
+/* ────────────────────────────────────────────────────────────
+ *  Include shared headers
+ *
+ *  Các file này cần nằm cùng thư mục với file .ino này.
+ *  Xem README.md để biết cách cài đặt.
+ * ──────────────────────────────────────────────────────────── */
+#include "mesh_config.h"
+#include "base64_util.h"
+#include "chunk_protocol.h"
+
+/* ================================================================
+ *  BIẾN TOÀN CỤC
+ * ================================================================ */
+
+painlessMesh mesh;                   // Đối tượng quản lý mạng Mesh
+
+uint16_t frame_id_counter = 0;      // Bộ đếm frame, tự tăng sau mỗi lần chụp
+                                     // Wrap-around: 0 → 65535 → 0 (uint16)
+                                     // Root dùng giá trị này để phân biệt frame
+
+uint32_t last_capture_time = 0;     // millis() của lần chụp cuối cùng
+                                     // Dùng để giữ tốc độ chụp ~3 FPS
+
+uint32_t frames_sent = 0;           // Tổng số frame đã gửi (thống kê)
+uint32_t chunks_sent = 0;           // Tổng số chunk đã gửi (thống kê)
+
+/* ================================================================
+ *  KHỞI TẠO CAMERA OV3660
+ *
+ *  Cấu hình tất cả các pin GPIO kết nối giữa ESP32 và sensor
+ *  camera, thiết lập chế độ xuất JPEG ở độ phân giải QVGA.
+ *
+ *  Lưu ý quan trọng về PSRAM:
+ *  - Frame buffer camera PHẢI nằm trong PSRAM
+ *  - Một ảnh QVGA JPEG ~8-15KB
+ *  - Nếu không có PSRAM, camera init sẽ thất bại ở các
+ *    resolution cao hoặc khi fb_count > 1
+ * ================================================================ */
+bool init_camera() {
+    camera_config_t config;
+
+    /* Cấu hình LEDC (LED Controller) cho XCLK
+     * XCLK là clock master cấp cho sensor camera.
+     * ESP32 dùng module LEDC để tạo tín hiệu clock này. */
+    config.ledc_channel = LEDC_CHANNEL_0;
+    config.ledc_timer   = LEDC_TIMER_0;
+
+    /* Pin mapping — DVP 8-bit Parallel Interface
+     *
+     * Sensor camera giao tiếp với ESP32 qua 8 đường dữ liệu
+     * song song (D0-D7), truyền 8 bit mỗi chu kỳ PCLK.
+     *
+     * Các pin được định nghĩa trong mesh_config.h cho board
+     * ESP32-CAM (AI-Thinker). Nếu dùng board khác, thay đổi
+     * pin mapping tại mesh_config.h.
+     */
+    config.pin_d0     = Y2_GPIO_NUM;     // Data bit 0 (LSB)
+    config.pin_d1     = Y3_GPIO_NUM;     // Data bit 1
+    config.pin_d2     = Y4_GPIO_NUM;     // Data bit 2
+    config.pin_d3     = Y5_GPIO_NUM;     // Data bit 3
+    config.pin_d4     = Y6_GPIO_NUM;     // Data bit 4
+    config.pin_d5     = Y7_GPIO_NUM;     // Data bit 5
+    config.pin_d6     = Y8_GPIO_NUM;     // Data bit 6
+    config.pin_d7     = Y9_GPIO_NUM;     // Data bit 7 (MSB)
+    config.pin_xclk   = XCLK_GPIO_NUM;  // Master clock output → sensor
+    config.pin_pclk   = PCLK_GPIO_NUM;  // Pixel clock input ← sensor
+    config.pin_vsync  = VSYNC_GPIO_NUM;  // Vertical sync ← sensor
+    config.pin_href   = HREF_GPIO_NUM;   // Horizontal reference ← sensor
+
+    /* I2C (SCCB) — Serial Camera Control Bus
+     * Dùng để ghi/đọc register cấu hình của sensor OV3660.
+     * SCCB tương thích I2C nhưng không dùng ACK/NACK. */
+    config.pin_sccb_sda = SIOD_GPIO_NUM; // I2C Data
+    config.pin_sccb_scl = SIOC_GPIO_NUM; // I2C Clock
+
+    /* Power control */
+    config.pin_pwdn  = PWDN_GPIO_NUM;   // Power down (active HIGH)
+    config.pin_reset = RESET_GPIO_NUM;   // Hardware reset (-1 = không dùng)
+
+    /* Thông số hoạt động */
+    config.xclk_freq_hz = 20000000;      // XCLK 20MHz (tiêu chuẩn cho OV3660)
+
+    /* Cấu hình output:
+     *
+     * PIXFORMAT_JPEG: Sensor OV3660 có bộ mã hóa JPEG phần cứng
+     * tích hợp, xuất trực tiếp dữ liệu JPEG compressed.
+     * Điều này tiết kiệm đáng kể RAM và băng thông so với
+     * chế độ RAW (RGB565, YUV422).
+     *
+     * FRAMESIZE_QVGA: 320×240 pixels
+     *   - Ảnh JPEG quality 12: ~8-15KB
+     *   - Chia thành ~8-15 chunks × 1024 bytes
+     *   - Phù hợp băng thông Mesh (~100-200 KB/s effective)
+     */
+    config.pixel_format = PIXFORMAT_JPEG;
+    config.frame_size   = CAM_FRAME_SIZE;       // QVGA 320×240
+    config.jpeg_quality = CAM_JPEG_QUALITY;     // Quality 12 (0=tốt nhất, 63=tệ nhất)
+    config.fb_count     = CAM_FB_COUNT;         // 1 frame buffer (tiết kiệm RAM)
+
+    /* Vị trí frame buffer:
+     * CAMERA_FB_IN_PSRAM: Đặt buffer trong PSRAM (4MB)
+     * Bắt buộc vì internal SRAM chỉ có ~520KB, không đủ. */
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+
+    /* CAMERA_GRAB_LATEST: Khi gọi esp_camera_fb_get(), lấy
+     * frame MỚI NHẤT thay vì frame trong queue. Giảm latency
+     * cho ứng dụng streaming. */
+    config.grab_mode = CAMERA_GRAB_LATEST;
+
+    /* Khởi tạo camera driver */
+    esp_err_t err = esp_camera_init(&config);
+    if (err != ESP_OK) {
+        Serial.printf("[CAM] Khoi tao THAT BAI! Error: 0x%x\n", err);
+        Serial.println("[CAM] Kiem tra:");
+        Serial.println("  - Ket noi phan cung camera");
+        Serial.println("  - PSRAM da bat trong Arduino IDE");
+        Serial.println("  - Chon dung board ESP32-CAM");
+        return false;
+    }
+
+    /* Tùy chỉnh thêm cho sensor OV3660
+     *
+     * esp_camera_sensor_get() trả về con trỏ đến cấu trúc
+     * sensor, cho phép điều chỉnh runtime các thông số hình ảnh.
+     */
+    sensor_t* s = esp_camera_sensor_get();
+    if (s != NULL) {
+        s->set_brightness(s, 0);     // Độ sáng: -2 đến +2
+        s->set_contrast(s, 0);       // Độ tương phản: -2 đến +2
+        s->set_saturation(s, 0);     // Độ bão hòa: -2 đến +2
+
+        /* Nếu hình bị ngược hoặc lật, bỏ comment các dòng sau: */
+        // s->set_vflip(s, 1);       // Lật dọc
+        // s->set_hmirror(s, 1);     // Lật ngang
+
+        /* OV3660 hỗ trợ thêm:
+         * s->set_whitebal(s, 1);    // Auto white balance
+         * s->set_awb_gain(s, 1);    // AWB gain
+         * s->set_exposure_ctrl(s, 1); // Auto exposure
+         */
+    }
+
+    Serial.println("[CAM] Khoi tao THANH CONG");
+    Serial.printf("[CAM] Resolution: %dx%d, JPEG Quality: %d\n",
+                  (CAM_FRAME_SIZE == FRAMESIZE_QVGA) ? 320 : 0,
+                  (CAM_FRAME_SIZE == FRAMESIZE_QVGA) ? 240 : 0,
+                  CAM_JPEG_QUALITY);
+    return true;
+}
+
+
+/* ================================================================
+ *  capture_and_send()
+ *
+ *  Hàm trung tâm thực hiện toàn bộ quy trình:
+ *  1. Chụp ảnh JPEG từ camera
+ *  2. Validate dữ liệu JPEG
+ *  3. Tính số chunk cần thiết
+ *  4. Cắt ảnh thành chunks, đóng header, encode Base64
+ *  5. Gửi từng chunk qua Mesh network
+ *  6. Giải phóng frame buffer
+ *
+ *  Gọi hàm này định kỳ từ loop() với interval CAPTURE_INTERVAL_MS
+ *
+ *  QUẢN LÝ BỘ NHỚ:
+ *  - Frame buffer camera: tự động quản lý bởi esp_camera driver
+ *    Gọi esp_camera_fb_get() → nhận buffer → xử lý → esp_camera_fb_return()
+ *  - Serialize buffers: static trong serialize_chunk() → không phân mảnh heap
+ *  - Chỉ có Arduino String tạm thời bị cấp phát trên heap
+ * ================================================================ */
+void capture_and_send() {
+    /* ── Bước 1: Chụp ảnh JPEG ──────────────────────────────
+     *
+     * esp_camera_fb_get() block cho đến khi sensor hoàn thành
+     * một frame. Trả về con trỏ đến camera_fb_t:
+     *   - fb->buf: Con trỏ đến dữ liệu JPEG (trong PSRAM)
+     *   - fb->len: Kích thước dữ liệu (bytes)
+     *   - fb->width, fb->height: Kích thước ảnh
+     *   - fb->format: Định dạng pixel (JPEG)
+     *
+     * QUAN TRỌNG: Phải gọi esp_camera_fb_return(fb) sau khi
+     * xử lý xong để trả buffer về cho driver tái sử dụng.
+     */
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb == NULL) {
+        Serial.println("[CAM] Chup anh THAT BAI! (fb == NULL)");
+        return;
+    }
+
+    /* ── Bước 2: Validate dữ liệu JPEG ─────────────────────
+     *
+     * Mọi file JPEG hợp lệ đều bắt đầu bằng marker SOI
+     * (Start Of Image): 0xFF 0xD8
+     *
+     * Nếu 2 byte đầu không phải 0xFFD8, dữ liệu bị corrupt
+     * hoặc camera chưa sẵn sàng. Bỏ qua frame này.
+     */
+    if (fb->len < 2 || fb->buf[0] != 0xFF || fb->buf[1] != 0xD8) {
+        Serial.println("[CAM] Du lieu JPEG khong hop le! (Missing SOI marker)");
+        esp_camera_fb_return(fb);
+        return;
+    }
+
+    /* Kiểm tra kích thước hợp lý */
+    if (fb->len > MAX_FRAME_SIZE) {
+        Serial.printf("[CAM] Frame qua lon: %d bytes (max %d)\n",
+                      fb->len, MAX_FRAME_SIZE);
+        esp_camera_fb_return(fb);
+        return;
+    }
+
+    Serial.printf("[CAM] Frame #%d: %d bytes\n", frame_id_counter, fb->len);
+
+    /* ── Bước 3: Tính số chunk cần thiết ────────────────────
+     *
+     * Chia kích thước ảnh cho MAX_CHUNK_PAYLOAD (1024 bytes),
+     * làm tròn lên.
+     *
+     * Ví dụ: fb->len = 10500 bytes
+     *   total_chunks = ceil(10500 / 1024) = 11
+     *   Chunks 0-9: mỗi chunk 1024 bytes
+     *   Chunk 10: 10500 - 10×1024 = 260 bytes (chunk cuối)
+     */
+    uint16_t total_chunks = calc_total_chunks(fb->len);
+    uint32_t my_node_id   = mesh.getNodeId();
+
+    /* ── Bước 4: Vòng lặp cắt và gửi từng chunk ────────────
+     *
+     * Duyệt từ chunk 0 đến chunk (total_chunks - 1).
+     * Mỗi chunk:
+     *   a) Tính offset trong JPEG buffer
+     *   b) Tính payload_len (chunk cuối có thể < 1024)
+     *   c) Tạo ChunkHeader
+     *   d) Serialize (header + payload) → Base64 String
+     *   e) Gửi String qua mesh.sendBroadcast()
+     *   f) Delay ngắn để tránh tràn TCP buffer của Mesh
+     */
+    for (uint16_t i = 0; i < total_chunks; i++) {
+
+        /* a) Tính vị trí bắt đầu đọc trong JPEG buffer
+         *    chunk 0: offset = 0
+         *    chunk 1: offset = 1024
+         *    chunk 2: offset = 2048
+         *    ...
+         */
+        size_t offset = (size_t)i * MAX_CHUNK_PAYLOAD;
+
+        /* b) Tính kích thước payload thực tế
+         *    Tất cả chunk trừ chunk cuối: payload = 1024
+         *    Chunk cuối: payload = fb->len - offset (phần còn lại)
+         *
+         *    Ví dụ: fb->len = 10500, chunk 10 (cuối):
+         *      offset    = 10 × 1024 = 10240
+         *      remaining = 10500 - 10240 = 260 bytes
+         */
+        size_t remaining = fb->len - offset;
+        uint16_t payload_len = (remaining > MAX_CHUNK_PAYLOAD)
+                                ? MAX_CHUNK_PAYLOAD
+                                : (uint16_t)remaining;
+
+        /* c) Đóng gói Header
+         *
+         * ChunkHeader (12 bytes):
+         *   node_id:      Để Root phân biệt dữ liệu từ camera nào
+         *   frame_id:     Để Root ghép đúng các chunk cùng frame
+         *   chunk_index:  Vị trí chunk → Root biết copy vào offset nào
+         *   total_chunks: Để Root biết khi nào nhận đủ
+         *   payload_len:  Kích thước payload (chunk cuối < 1024)
+         */
+        ChunkHeader header;
+        header.node_id      = my_node_id;
+        header.frame_id     = frame_id_counter;
+        header.chunk_index  = i;
+        header.total_chunks = total_chunks;
+        header.payload_len  = payload_len;
+
+        /* d) Serialize: Header + Payload → Base64 String
+         *
+         * serialize_chunk() trong chunk_protocol.h:
+         *   1. Copy header (12 bytes) vào static buffer
+         *   2. Copy payload (≤1024 bytes) ngay sau header
+         *   3. Base64 encode toàn bộ → trả về String
+         *
+         * Pointer fb->buf + offset trỏ vào đúng vùng JPEG
+         * data của chunk hiện tại trong PSRAM.
+         */
+        String encoded = serialize_chunk(header, fb->buf + offset);
+
+        if (encoded.length() == 0) {
+            Serial.printf("[CAM] Serialize chunk %d THAT BAI!\n", i);
+            continue;  // Bỏ qua chunk lỗi, tiếp tục chunk tiếp theo
+        }
+
+        /* e) Gửi qua Mesh Network
+         *
+         * sendBroadcast(): Gửi tới TẤT CẢ node trong mạng Mesh.
+         * Root Node sẽ nhận và xử lý, các Camera Node khác sẽ
+         * bỏ qua (vì không có reassembly logic).
+         *
+         * Tối ưu: Nếu biết Root Node ID, dùng mesh.sendSingle(rootId, encoded)
+         * để gửi trực tiếp, giảm traffic không cần thiết.
+         * Xem README.md để biết cách cấu hình sendSingle.
+         */
+        bool sent_ok = mesh.sendBroadcast(encoded);
+
+        if (!sent_ok) {
+            Serial.printf("[CAM] Gui chunk %d/%d THAT BAI!\n",
+                          i + 1, total_chunks);
+        }
+
+        chunks_sent++;
+
+        /* f) Delay giữa các chunk
+         *
+         * TẠI SAO CẦN DELAY?
+         * painlessMesh sử dụng TCP nội bộ giữa các node.
+         * Gửi quá nhanh (burst) sẽ:
+         *   - Tràn TCP send buffer → gói bị drop
+         *   - Tràn receive buffer ở node trung gian → mất gói
+         *   - CPU không kịp xử lý JSON wrapping
+         *
+         * 20ms delay giữa các chunk:
+         *   - 15 chunks × 20ms = 300ms overhead/frame
+         *   - Vẫn cho phép đạt ~2-3 FPS
+         *   - Giảm đáng kể tỷ lệ mất gói
+         *
+         * Gọi mesh.update() trong delay để:
+         *   - Mesh tiếp tục xử lý routing, heartbeat
+         *   - Tránh timeout connection
+         */
+        if (i < total_chunks - 1) {
+            delay(CHUNK_SEND_DELAY_MS);
+            mesh.update();   // Duy trì kết nối Mesh trong khi chờ
+        }
+    }
+
+    Serial.printf("[CAM] Frame #%d: da gui %d chunks\n",
+                  frame_id_counter, total_chunks);
+
+    /* ── Bước 5: Giải phóng frame buffer ────────────────────
+     *
+     * TRẢ LẠI buffer cho camera driver. Nếu không gọi hàm này,
+     * driver sẽ hết buffer và esp_camera_fb_get() trả về NULL.
+     *
+     * Với fb_count = 1: chỉ có 1 buffer, phải return trước khi
+     * chụp ảnh tiếp.
+     */
+    esp_camera_fb_return(fb);
+
+    /* ── Bước 6: Tăng frame counter ────────────────────────
+     *
+     * uint16_t tự wrap-around: 65535 + 1 = 0
+     * Root Node xử lý wrap-around: nếu nhận frame_id mới khác
+     * frame_id cũ → tạo assembly slot mới.
+     */
+    frame_id_counter++;
+    frames_sent++;
+}
+
+
+/* ================================================================
+ *  MESH CALLBACKS
+ *
+ *  painlessMesh gọi các callback này khi có sự kiện mạng.
+ *  Camera Node chỉ cần log để debug, không xử lý message nhận.
+ * ================================================================ */
+
+/**
+ * Được gọi khi nhận message từ node khác trong Mesh.
+ * Camera Node không cần xử lý (chỉ Root mới reassemble).
+ */
+void receivedCallback(uint32_t from, String &msg) {
+    // Bỏ qua — Camera Node không xử lý message nhận được
+    // Trong mạng có nhiều Camera, broadcast từ camera khác sẽ
+    // đến đây nhưng không cần thiết phải xử lý.
+}
+
+/**
+ * Được gọi khi một node mới kết nối vào Mesh.
+ * nodeId là ID duy nhất của node mới (dựa trên chip ID ESP32).
+ */
+void newConnectionCallback(uint32_t nodeId) {
+    Serial.printf("[MESH] Ket noi moi: Node %u\n", nodeId);
+}
+
+/**
+ * Được gọi khi topology mạng thay đổi (node join/leave).
+ * In ra danh sách các node hiện có trong mạng.
+ */
+void changedConnectionCallback() {
+    Serial.println("[MESH] Topology mang thay doi");
+    auto nodes = mesh.getNodeList();
+    Serial.printf("[MESH] Tong so node: %d\n", nodes.size());
+    for (auto &id : nodes) {
+        Serial.printf("  - Node: %u\n", id);
+    }
+}
+
+
+/* ================================================================
+ *  SETUP — Khởi tạo một lần khi ESP32 khởi động
+ * ================================================================ */
+void setup() {
+    /* Khởi tạo Serial để debug */
+    Serial.begin(115200);
+    delay(1000);  // Chờ Serial ổn định
+
+    Serial.println();
+    Serial.println("╔══════════════════════════════════════════╗");
+    Serial.println("║  ESP32 Mesh Video — CAMERA NODE         ║");
+    Serial.println("║  OV3660 JPEG → Chunk → painlessMesh     ║");
+    Serial.println("╚══════════════════════════════════════════╝");
+    Serial.println();
+
+    /* ── Kiểm tra PSRAM ─────────────────────────────────────
+     *
+     * PSRAM (Pseudo-Static RAM) là bộ nhớ ngoài 4MB gắn trên
+     * module ESP32-CAM. Bắt buộc có vì:
+     *   - Frame buffer camera cần ~150KB (QVGA RGB565)
+     *   - JPEG compressed buffer cũng nằm trong PSRAM
+     *   - Internal SRAM chỉ có ~520KB (dùng cho stack, heap)
+     *
+     * Nếu không có PSRAM: kiểm tra:
+     *   1. Arduino IDE → Tools → PSRAM → "Enabled"
+     *   2. Board có module PSRAM gắn kèm (ESP32-CAM đều có)
+     */
+    if (psramFound()) {
+        Serial.printf("[SYS] PSRAM: %d bytes kha dung\n", ESP.getFreePsram());
+    } else {
+        Serial.println("[SYS] CANH BAO: Khong tim thay PSRAM!");
+        Serial.println("[SYS] Camera co the khong hoat dong.");
+        Serial.println("[SYS] Kiem tra: Tools > PSRAM > Enabled");
+    }
+
+    Serial.printf("[SYS] Heap con lai: %d bytes\n", ESP.getFreeHeap());
+
+    /* ── Khởi tạo Camera ────────────────────────────────────── */
+    Serial.println("\n[CAM] Dang khoi tao camera OV3660...");
+    if (!init_camera()) {
+        Serial.println("[SYS] LOI NGHIEM TRONG: Camera khong khoi tao duoc!");
+        Serial.println("[SYS] Dung hoat dong. Khoi dong lai ESP32.");
+        while (true) { delay(1000); }  // Halt
+    }
+
+    /* Chụp thử 1 ảnh để warm up pipeline camera */
+    camera_fb_t* test_fb = esp_camera_fb_get();
+    if (test_fb) {
+        Serial.printf("[CAM] Test frame: %d bytes\n", test_fb->len);
+        esp_camera_fb_return(test_fb);
+    }
+
+    /* ── Khởi tạo painlessMesh ──────────────────────────────
+     *
+     * setDebugMsgTypes(): Chọn loại message debug hiển thị
+     *   ERROR:   Lỗi nghiêm trọng
+     *   STARTUP: Thông tin khởi tạo
+     *
+     * init(): Tạo Mesh network với SSID, password, port
+     *   - ESP32 tạo AP riêng cho Mesh
+     *   - Tự động tìm và kết nối các node khác
+     *   - Tự xử lý routing multi-hop
+     *
+     * setContainsRoot(true): Báo cho Mesh biết mạng có Root
+     *   Node. Mesh sẽ tổ chức topology hình cây với Root
+     *   ở gốc, giúp routing hiệu quả hơn.
+     */
+    Serial.println("\n[MESH] Dang khoi tao painlessMesh...");
+
+    mesh.setDebugMsgTypes(ERROR | STARTUP);
+    mesh.init(MESH_SSID, MESH_PASSWORD, MESH_PORT);
+
+    mesh.onReceive(&receivedCallback);
+    mesh.onNewConnection(&newConnectionCallback);
+    mesh.onChangedConnections(&changedConnectionCallback);
+
+    mesh.setContainsRoot(true);
+
+    Serial.printf("[MESH] Node ID: %u\n", mesh.getNodeId());
+    Serial.printf("[MESH] Mesh SSID: %s\n", MESH_SSID);
+
+    /* ── Sẵn sàng ──────────────────────────────────────────── */
+    Serial.println();
+    Serial.println("========================================");
+    Serial.printf("[SYS] San sang! Chup moi %d ms (~%.1f FPS)\n",
+                  CAPTURE_INTERVAL_MS,
+                  1000.0f / CAPTURE_INTERVAL_MS);
+    Serial.printf("[SYS] Chunk size: %d bytes, delay: %d ms\n",
+                  MAX_CHUNK_PAYLOAD, CHUNK_SEND_DELAY_MS);
+    Serial.println("========================================\n");
+
+    last_capture_time = millis();
+}
+
+
+/* ================================================================
+ *  LOOP — Vòng lặp chính, chạy liên tục
+ *
+ *  Hai nhiệm vụ:
+ *  1. mesh.update(): BẮT BUỘC gọi mỗi vòng loop để painlessMesh
+ *     duy trì kết nối, xử lý routing, heartbeat.
+ *  2. capture_and_send(): Chụp + gửi ảnh khi đến interval.
+ *
+ *  Không dùng delay() trong loop chính vì sẽ block mesh.update()
+ *  và gây mất kết nối Mesh.
+ * ================================================================ */
+void loop() {
+    /* Cập nhật Mesh — phải gọi THƯỜNG XUYÊN */
+    mesh.update();
+
+    /* Kiểm tra interval chụp ảnh */
+    uint32_t now = millis();
+    if (now - last_capture_time >= CAPTURE_INTERVAL_MS) {
+        last_capture_time = now;
+        capture_and_send();
+
+        /* In thống kê định kỳ (mỗi 10 frame) */
+        if (frames_sent > 0 && frames_sent % 10 == 0) {
+            Serial.printf("[STAT] Frames: %d, Chunks: %d, Heap: %d, PSRAM: %d\n",
+                          frames_sent, chunks_sent,
+                          ESP.getFreeHeap(), ESP.getFreePsram());
+        }
+    }
+}

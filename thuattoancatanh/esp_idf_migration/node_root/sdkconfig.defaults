@@ -1,0 +1,20 @@
+# Cau hinh mac dinh cho node_root — tuong duong voi cac tuy chon
+# ban da chinh trong Arduino IDE (Tools > PSRAM > Enabled, v.v.)
+#
+# LUU Y: chay `idf.py menuconfig` sau khi build lan dau de xac nhan
+# cac gia tri nay da duoc ap dung dung (menuconfig se doc file nay
+# lam gia tri khoi diem).
+
+# --- PSRAM (BAT BUOC cho ESP32-CAM / module co PSRAM) ---
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# --- Partition table du lon cho app (tuong duong "Huge APP (3MB No OTA)"
+#     trong Arduino IDE) — dung preset co san, khong can file .csv rieng ---
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# --- WiFi: can du bo nho cho ESP-WIFI-MESH voi nhieu node ---
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32

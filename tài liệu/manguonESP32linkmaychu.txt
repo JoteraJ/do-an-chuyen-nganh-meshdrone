@@ -1,0 +1,126 @@
+			Có wifi/5G
+#include "painlessMesh.h"
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+
+// 1. CẤU HÌNH MẠNG MESH (Phải giống 3 node kia)
+#define   MESH_PREFIX     "ESP32_MESH_NET"
+#define   MESH_PASSWORD   "123456789"
+#define   MESH_PORT       5555
+
+// 2. CẤU HÌNH WIFI NHÀ BẠN
+#define   STATION_SSID     "Ten_Wifi_Nha_Ban"
+#define   STATION_PASSWORD "Mat_Khau_Wifi"
+
+Scheduler userScheduler; 
+painlessMesh  mesh;
+
+// Khởi tạo một Web Server ở cổng 80 và WebSocket ở đường dẫn /ws
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+
+IPAddress myIP(0,0,0,0);
+
+// Hàm nhận dữ liệu từ các Drone (Node 1, 2, 3)
+void receivedCallback(uint32_t from, String &msg) {
+  Serial.printf("Mesh nhận tin từ %u: %s\n", from, msg.c_str());
+  
+  // Quan trọng: Ngay khi nhận được từ Mesh, Gateway đẩy thẳng lên WebSocket cho Laptop!
+  String webMsg = "{\"nodeId\":" + String(from) + ", \"data\":\"" + msg + "\"}";
+  ws.textAll(webMsg);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  mesh.setDebugMsgTypes( ERROR | STARTUP );  
+
+  // Khởi tạo mạng Mesh
+  mesh.init( MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT );
+  mesh.onReceive(&receivedCallback);
+
+  // Kích hoạt chế độ Cầu nối (Bridge) - Ép ESP32 kết nối thêm vào Router Wifi nhà bạn
+  mesh.stationManual(STATION_SSID, STATION_PASSWORD);
+  mesh.setHostname("ESP32_Gateway");
+
+  // Cấu hình WebSocket
+  ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    if(type == WS_EVT_CONNECT){
+      Serial.printf("Laptop/Web đã kết nối WebSocket, IP: %s\n", client->remoteIP().toString().c_str());
+    } else if(type == WS_EVT_DISCONNECT){
+      Serial.println("Laptop/Web đã ngắt kết nối WebSocket");
+    }
+  });
+  
+  server.addHandler(&ws);
+  server.begin();
+  
+  Serial.println("Đang khởi động Gateway...");
+}
+
+void loop() {
+  mesh.update();
+  
+  // Hàm kiểm tra và in ra địa chỉ IP của ESP32 do Router nhà bạn cấp
+  IPAddress currentIP = mesh.getStationIP();
+  if(currentIP != myIP && currentIP != IPAddress(0,0,0,0)) {
+    myIP = currentIP;
+    Serial.print("Gateway đã kết nối Wifi nhà! Hãy mở Laptop truy cập WebSocket qua IP: ws://");
+    Serial.print(myIP);
+    Serial.println("/ws");
+  }
+}
+
+
+				KHÔNG CÓ WIFI/5G				
+#include "painlessMesh.h"
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+
+#define   MESH_PREFIX     "ESP32_MESH_NET"
+#define   MESH_PASSWORD   "123456789"
+#define   MESH_PORT       5555
+
+Scheduler userScheduler; 
+painlessMesh  mesh;
+
+// Khởi tạo Web Server và WebSocket
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+
+void receivedCallback(uint32_t from, String &msg) {
+  // Nhận dữ liệu từ Drone và bắn thẳng lên Web
+  String webMsg = "{\"nodeId\":" + String(from) + ", \"data\":\"" + msg + "\"}";
+  ws.textAll(webMsg);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Khởi tạo mạng Mesh (Nó sẽ tự động phát sóng Wifi ESP32_MESH_NET)
+  mesh.setDebugMsgTypes( ERROR | STARTUP );  
+  mesh.init( MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT );
+  mesh.onReceive(&receivedCallback);
+
+  // Mở cổng WebSocket
+  ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    if(type == WS_EVT_CONNECT){
+      Serial.println(">> Laptop đã kết nối thành công vào hệ thống Mesh!");
+    }
+  });
+  server.addHandler(&ws);
+  server.begin();
+  
+  // In ra địa chỉ IP của Gateway để cấu hình cho Laptop
+  Serial.println("=====================================");
+  Serial.println("HỆ THỐNG ĐÃ SẴN SÀNG (KHÔNG CẦN ROUTER)");
+  Serial.print("1. Dùng Laptop bắt Wifi tên: "); Serial.println(MESH_PREFIX);
+  Serial.print("2. Mật khẩu Wifi là: "); Serial.println(MESH_PASSWORD);
+  Serial.print("3. Địa chỉ IP của Gateway là: "); Serial.println(WiFi.softAPIP());
+  Serial.println("=====================================");
+}
+
+void loop() {
+  mesh.update();
+}
