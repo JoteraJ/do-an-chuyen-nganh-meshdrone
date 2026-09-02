@@ -80,7 +80,7 @@ static void capture_and_send_task(void *arg) {
             continue;
         }
 
-        size_t jpeg_len = fill_fake_jpeg(fake_jpeg, sizeof(fake_jpeg));
+        size_t jpeg_len = fill_fake_jpeg(fake_jpeg, MAX_FRAME_SIZE);
         uint16_t total_chunks = calc_total_chunks(jpeg_len);
 
         int64_t t_start = esp_timer_get_time();
@@ -167,6 +167,8 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
+    // Tat modem sleep de giam latency / tang throughput cho ESP-WIFI-MESH
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     ESP_ERROR_CHECK(esp_event_handler_register(MESH_EVENT, ESP_EVENT_ANY_ID, &mesh_event_handler, NULL));
 

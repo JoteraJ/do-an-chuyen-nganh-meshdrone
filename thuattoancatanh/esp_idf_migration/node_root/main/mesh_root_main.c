@@ -191,9 +191,14 @@ static bool s_is_root_locked = false;
 
 static void mesh_event_handler(void *arg, esp_event_base_t base, int32_t id, void *event_data) {
     switch (id) {
-    case MESH_EVENT_STARTED:
-        ESP_LOGI(TAG, "[MESH] Started, ID=" MACSTR, MAC2STR(esp_mesh_get_mesh_id()->addr));
+    case MESH_EVENT_STARTED: {
+        mesh_addr_t mid = {0};
+        esp_mesh_get_id(&mid);
+        ESP_LOGI(TAG, "[MESH] Started, ID=%02x:%02x:%02x:%02x:%02x:%02x",
+                 mid.addr[0], mid.addr[1], mid.addr[2],
+                 mid.addr[3], mid.addr[4], mid.addr[5]);
         break;
+    }
     case MESH_EVENT_PARENT_CONNECTED: {
         mesh_event_connected_t *connected = (mesh_event_connected_t *)event_data;
         s_mesh_layer = connected->self_layer;
@@ -260,10 +265,16 @@ static void mesh_recv_task(void *arg) {
     }
 }
 
+static void cleanup_task(void *arg) {
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        cleanup_stale_frames();
+    }
+}
+
 static void stats_task(void *arg) {
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(15000));
-        cleanup_stale_frames();
         ESP_LOGI(TAG, "[STAT] Frames OK: %u | Dropped: %u | Chunks: %u | Layer: %d | Free heap: %u",
                  (unsigned)s_frames_completed, (unsigned)s_frames_dropped,
                  (unsigned)s_chunks_received, s_mesh_layer, (unsigned)esp_get_free_heap_size());
@@ -305,6 +316,8 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
+    // Tat modem sleep de giam latency / tang throughput cho ESP-WIFI-MESH
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     ESP_ERROR_CHECK(esp_event_handler_register(MESH_EVENT, ESP_EVENT_ANY_ID, &mesh_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip_event_handler, NULL));
@@ -330,4 +343,5 @@ void app_main(void) {
 
     xTaskCreate(mesh_recv_task, "mesh_recv_task", 8192, NULL, 5, NULL);
     xTaskCreate(stats_task, "stats_task", 3072, NULL, 3, NULL);
+    xTaskCreate(cleanup_task, "cleanup_task", 3072, NULL, 3, NULL);
 }
