@@ -48,6 +48,14 @@
 #include "base64_util.h"
 #include "chunk_protocol.h"
 
+/* chunk_log() — hook mà chunk_protocol.h gọi khi có lỗi encode/decode
+ * chunk (xem khai báo extern trong chunk_protocol.h). node_camera KHÔNG
+ * đóng khung UART cho middleware (chỉ Root mới làm việc đó), nên ở đây
+ * giữ nguyên hành vi debug cũ: in thẳng ra Serial Monitor. */
+void chunk_log(const char* msg) {
+    Serial.println(msg);
+}
+
 /* ================================================================
  *  BIẾN TOÀN CỤC
  * ================================================================ */

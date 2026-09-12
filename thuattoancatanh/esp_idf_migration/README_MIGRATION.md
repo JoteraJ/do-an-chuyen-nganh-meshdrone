@@ -117,7 +117,8 @@ nhưng CHƯA build thử. Các điểm rủi ro cao nhất theo thứ tự:
    tin tưởng hoàn toàn — nếu Root không tự bầu đúng node bạn muốn, tham
    khảo thêm `esp_mesh_set_type(MESH_ROOT)` trong tài liệu ESP-WIFI-MESH.
 3. **Giới hạn kích thước gói `esp_mesh_send()`.** Gói hiện tại tối đa
-   `12 + 1024 = 1036 byte`. Tài liệu Espressif không nêu 1 con số cứng
+   `16 + 1024 = 1040 byte` (header tăng từ 12 lên 16 byte sau khi thêm
+   `capture_ts_ms` ở Phase 4 — xem mục 7). Tài liệu Espressif không nêu 1 con số cứng
    duy nhất cho mọi version — nếu gặp lỗi gửi (`ESP_ERR_MESH_ARGUMENT`
    hoặc tương tự) khi test, thử giảm `MAX_CHUNK_PAYLOAD` xuống 512 trong
    `mesh_config.h` (đúng thực nghiệm bạn đã định làm ở tuần 8-9 rồi).
@@ -140,7 +141,23 @@ sửa tiếp theo đúng lỗi thật thay vì đoán.
   gần như giữ nguyên logic so với bản Arduino cũ (cùng driver gốc).
 - **Phase 3:** thêm `esp_http_server` (component có sẵn trong ESP-IDF)
   vào `node_root` để phát MJPEG, thay cho `WiFiServer` thô của bản cũ.
-- **Phase 4:** thêm timestamp vào `chunk_header_t` (đo latency) và đăng
-  ký `MESH_EVENT_PARENT_DISCONNECTED` với timestamp (đo self-healing) —
-  đây là 2 điểm còn thiếu đã nói ở lần review trước, migrate sang
-  ESP-IDF không tự động giải quyết được, vẫn cần bạn tự thêm.
+- **Phase 4 (ĐÃ LÀM — chưa compile-test):** thêm `capture_ts_ms` vào
+  `chunk_header_t` (đo latency end-to-end, tính ở `mesh_root_main.c` lúc
+  frame HOÀN THÀNH) và đo self-healing qua
+  `MESH_EVENT_ROUTING_TABLE_REMOVE`/`ADD` (không dùng
+  `MESH_EVENT_PARENT_DISCONNECTED` như dự tính ban đầu — Root không có
+  "parent" trong cây mesh nên event đó không phản ánh đúng một node con
+  bị rớt giữa đường; xem ghi chú trong code). **Rủi ro cao nhất bạn cần
+  tự kiểm tra khi build:** tên struct `mesh_event_routing_table_change_t`
+  và 2 field `rt_size_change`/`rt_size_new` lấy theo tài liệu
+  ESP-WIFI-MESH, chưa đối chiếu với `esp_mesh.h` của bản ESP-IDF cụ thể
+  bạn cài — nếu build báo lỗi thiếu type/field ở khối
+  `MESH_EVENT_ROUTING_TABLE_REMOVE`/`ADD` trong `mesh_root_main.c`, sửa
+  lại đúng tên theo thông báo lỗi trình biên dịch đưa ra.
+- **Phase còn thiếu:** đồng bộ đồng hồ giữa Camera Node và Root —
+  `capture_ts_ms` hiện chỉ đúng khi 2 board được cấp nguồn/reset gần như
+  cùng lúc (millis()/esp_timer đều tính từ 0 lúc boot, không có NTP hay
+  cơ chế đồng bộ giờ nào giữa các node mesh). Đủ dùng để lấy SỐ LIỆU
+  TƯƠNG ĐỐI cho báo cáo (so sánh latency giữa 2 hop vs 3 hop cùng 1 lần
+  đo) nhưng KHÔNG chính xác tuyệt đối nếu 2 board bật lệch nhau nhiều
+  giây/phút — nêu rõ giới hạn này khi trình bày số liệu.

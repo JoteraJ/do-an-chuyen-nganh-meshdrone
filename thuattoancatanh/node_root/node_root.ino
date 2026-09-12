@@ -13,14 +13,15 @@
  *
  *  Kiến trúc bộ nhớ:
  *  ─────────────────
- *  - Assembly buffers: Pre-allocated trong PSRAM (4 slots × 64KB)
- *  - Latest frame buffer: 1 × 64KB trong PSRAM
- *  - Tổng PSRAM sử dụng: ~320KB (còn ~3.7MB cho Mesh + HTTP)
+ *  - Assembly buffers: Pre-allocated (PSRAM nếu có, ngược lại SRAM)
+ *  - MAX_CONCURRENT_FRAMES × 64KB = 1 × 64KB ≈ 64KB (đã giảm từ 320KB)
+ *  - Không còn latest_frame riêng: HTTP/UART đọc trực tiếp từ assembly buffer
  *  - Tất cả cấp phát 1 lần trong setup() → KHÔNG phân mảnh heap
  *
  *  Phần cứng yêu cầu:
  *  ──────────────────
- *  - ESP32 có PSRAM (ESP32-CAM, ESP32-WROVER, ...)
+ *  - ESP32 có hoặc KHÔNG có PSRAM (tự động fallback về SRAM nội bộ)
+ *  - Khuyến nghị board có PSRAM khi cần nhiều slot đồng thời
  *  - KHÔNG cần camera (Root chỉ nhận và phát stream)
  *
  *  Thư viện cần cài (Arduino IDE Library Manager):
@@ -42,6 +43,7 @@
 
 #include <painlessMesh.h>
 #include <WiFi.h>
+#include <stdarg.h>
 
 /* ────────────────────────────────────────────────────────────
  *  Include shared headers
@@ -52,6 +54,7 @@
 #include "mesh_config.h"
 #include "base64_util.h"
 #include "chunk_protocol.h"
+#include "crc16.h"   // CRC16/CCITT-FALSE cho giao thức UART -> middleware, xem UART_PROTOCOL.md
 
 
 /* ================================================================
@@ -128,11 +131,15 @@ FrameAssembly assemblies[MAX_CONCURRENT_FRAMES];
 // Cấp phát 1 lần trong setup(), tái sử dụng mãi mãi
 uint8_t* assembly_buffers[MAX_CONCURRENT_FRAMES];
 
-/* ── Buffer frame hoàn chỉnh mới nhất ───────────────────── */
+/* ── Con trỏ và kích thước frame hoàn chỉnh mới nhất ────── */
 
-// Frame JPEG mới nhất đã ghép xong, sẵn sàng phục vụ HTTP
-uint8_t* latest_frame       = NULL;
-size_t   latest_frame_len   = 0;
+/* [ĐÃ ĐỔI] Bỏ buffer latest_frame riêng biệt để tiết kiệm 64KB SRAM.
+ * latest_frame bây giờ là con trỏ chỉ vào assembly_buffers[latest_slot]
+ * (vùng nhớ pre-allocated dùng chung). HTTP server và send_image_frame()
+ * đọc trực tiếp từ đó — an toàn vì slot chỉ bị tái dụng sau khi
+ * new_frame_available được reset (single-thread Arduino loop). */
+const uint8_t* latest_frame     = NULL;  // Trỏ vào assembly buffer, KHÔNG free
+size_t         latest_frame_len = 0;
 
 // Flag báo có frame mới cho HTTP streaming
 // volatile vì có thể bị set trong callback (ngữ cảnh khác)
@@ -155,14 +162,192 @@ uint32_t last_stats_time    = 0;    // Thời điểm in thống kê cuối
 // Flag in IP một lần
 bool ip_printed = false;
 
+/* ── Self-healing: đo thời gian mesh khôi phục sau khi rớt kết nối ──
+ *
+ * last_disconnect_ms = 0  -> hiện không có sự cố nào đang chờ khôi phục
+ * last_disconnect_ms != 0 -> mesh vừa mất 1 kết nối tại thời điểm này,
+ *                            đang chờ changedConnectionCallback() báo
+ *                            topology ổn định trở lại để tính elapsed.
+ * last_self_heal_ms = -1  -> CHƯA từng có sự kiện rớt/khôi phục nào.
+ *
+ * LƯU Ý: đây là phép đo XẤP XỈ (lấy mốc theo lần đổi topology KẾ TIẾP
+ * sau khi rớt), không phân biệt được 2 sự cố rớt xảy ra dồn dập. Đủ
+ * dùng cho kịch bản đồ án (rút nguồn 1 node giữa để đo self-healing)
+ * nhưng bạn nên đối chiếu lại với log thời gian thực khi demo.
+ */
+uint32_t last_disconnect_ms = 0;
+int32_t  last_self_heal_ms  = -1;
+
+/* [ĐÃ XÓA] uart_tx_buffer riêng đã bị bỏ để tiết kiệm 64KB+10B SRAM.
+ * send_image_frame() bây giờ gửi sub-header 10 byte và JPEG data
+ * theo 2 lần write riêng biệt — không cần buffer ghép lại. */
+
+
+/* ================================================================
+ *  UART_PROTOCOL.md — GỬI KHUNG NHỊ PHÂN CHO MIDDLEWARE (PC)
+ *
+ *  Root Node chỉ có 1 UART thật sự lộ ra ngoài (qua đầu nạp FTDI),
+ *  nên TOÀN BỘ output — kể cả log debug — đi qua đây, đóng khung
+ *  theo đúng ../UART_PROTOCOL.md để middleware Node.js tách được,
+ *  thay vì in text thô sẽ làm hỏng luồng nhị phân của ảnh JPEG.
+ *
+ *  DBGLN(...) / DBGF(...) bên dưới THAY THẾ Serial.println()/Serial.printf()
+ *  gốc ở khắp file này (xem macro cuối khối này).
+ * ================================================================ */
+#define FRAME_TYPE_IMAGE      0x01
+#define FRAME_TYPE_TELEMETRY  0x02
+#define FRAME_TYPE_LOG        0x03
+
+static void send_uart_frame(uint8_t type, const uint8_t* payload, size_t len) {
+    uint8_t header[7];
+    header[0] = 0xAA;
+    header[1] = 0x55;
+    header[2] = type;
+    header[3] = (uint8_t)(len & 0xFF);
+    header[4] = (uint8_t)((len >> 8) & 0xFF);
+    header[5] = (uint8_t)((len >> 16) & 0xFF);
+    header[6] = (uint8_t)((len >> 24) & 0xFF);
+
+    uint16_t crc = crc16_ccitt_false_init();
+    crc = crc16_ccitt_false_update(crc, header + 2, 5); // TYPE + LEN, khong tinh 2 byte MAGIC
+    if (len > 0 && payload != NULL) {
+        crc = crc16_ccitt_false_update(crc, payload, len);
+    }
+
+    Serial.write(header, sizeof(header));
+    if (len > 0 && payload != NULL) {
+        Serial.write(payload, len);
+    }
+    uint8_t crc_bytes[2] = { (uint8_t)(crc & 0xFF), (uint8_t)((crc >> 8) & 0xFF) };
+    Serial.write(crc_bytes, sizeof(crc_bytes));
+}
+
+/* log_framef()/log_frame_str(): thay Serial.printf()/Serial.println() cũ.
+ * Bỏ ký tự '\n'/'\r' ở cuối vì khung đã tự có ranh giới rõ ràng, không
+ * cần dấu xuống dòng để middleware biết hết message. */
+static void log_frame_str(const char* msg) {
+    size_t len = strlen(msg);
+    while (len > 0 && (msg[len - 1] == '\n' || msg[len - 1] == '\r')) len--;
+    send_uart_frame(FRAME_TYPE_LOG, (const uint8_t*)msg, len);
+}
+
+static void log_framef(const char* fmt, ...) {
+    char buf[256];
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (n < 0) return;
+    size_t len = (size_t)n;
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1; // vsnprintf da tu cat, tranh doc rac
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) len--;
+    send_uart_frame(FRAME_TYPE_LOG, (const uint8_t*)buf, len);
+}
+
+#define DBGLN(x) log_frame_str(x)
+#define DBGF(...) log_framef(__VA_ARGS__)
+
+/* chunk_log() — hook mà shared/chunk_protocol.h gọi khi có lỗi giải mã
+ * chunk (xem khai báo extern trong chunk_protocol.h). Ở node_root, route
+ * về log_frame_str() để không in text thô đè lên luồng nhị phân UART. */
+void chunk_log(const char* msg) {
+    log_frame_str(msg);
+}
+
+/* send_telemetry_frame(): xem cấu trúc JSON trong UART_PROTOCOL.md §4.2.
+ * Gọi định kỳ mỗi TELEMETRY_SEND_INTERVAL_MS từ loop(). */
+static void send_telemetry_frame() {
+    auto nodeList = mesh.getNodeList();
+
+    char json[512];
+    int pos = snprintf(json, sizeof(json),
+        "{\"ts\":%lu,\"role\":\"root\",\"layer\":0,"
+        "\"frames_ok\":%u,\"frames_drop\":%u,\"chunks\":%u,"
+        "\"heap_free\":%u,\"psram_free\":%u,"
+        "\"node_count\":%u,\"node_ids\":[",
+        (unsigned long)millis(),
+        (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
+        (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
+        (unsigned)nodeList.size());
+
+    bool first = true;
+    for (auto& id : nodeList) {
+        if (pos < 0 || pos >= (int)sizeof(json) - 16) break; // an toan, tranh tran buffer khi qua nhieu node
+        int written = snprintf(json + pos, sizeof(json) - pos, "%s%u", first ? "" : ",", (unsigned)id);
+        if (written < 0) break;
+        pos += written;
+        first = false;
+    }
+    if (pos < 0) pos = 0;
+    pos += snprintf(json + pos, sizeof(json) - (size_t)pos, "],\"last_self_heal_ms\":%ld}", (long)last_self_heal_ms);
+
+    send_uart_frame(FRAME_TYPE_TELEMETRY, (const uint8_t*)json, (size_t)pos);
+}
+
+/* send_image_frame(): 1 frame JPEG Root vừa ghép xong -> UART cho middleware.
+ * Sub-header 10 byte (node_id + frame_id + jpeg_len) theo UART_PROTOCOL.md §4.1.
+ *
+ * [ĐÃ ĐỔI] Bỏ uart_tx_buffer pre-allocated (tiết kiệm 64KB+10B SRAM).
+ * Thay bằng sub-header 10 byte trên stack, gửi header trước rồi gửi JPEG
+ * riêng. CRC phải bao gồm cả 2 phần → dùng send_uart_frame() mở rộng
+ * không thể dùng trực tiếp. Giải pháp: đóng gói thủ công theo đúng
+ * UART_PROTOCOL.md — header[7] + sub_hdr[10] + jpeg + crc[2]. */
+static void send_image_frame(uint32_t node_id, uint16_t frame_id, const uint8_t* jpeg, size_t jpeg_len) {
+    if (jpeg == NULL || jpeg_len == 0) return;
+    if (jpeg_len > MAX_FRAME_SIZE) {
+        DBGF("[UART] Anh qua lon (%u > %u), bo qua gui UART", (unsigned)jpeg_len, (unsigned)MAX_FRAME_SIZE);
+        return;
+    }
+
+    /* Sub-header 10 byte: node_id(4) + frame_id(2) + jpeg_len(4) */
+    uint8_t sub_hdr[10];
+    sub_hdr[0] = (uint8_t)(node_id & 0xFF);
+    sub_hdr[1] = (uint8_t)((node_id >> 8) & 0xFF);
+    sub_hdr[2] = (uint8_t)((node_id >> 16) & 0xFF);
+    sub_hdr[3] = (uint8_t)((node_id >> 24) & 0xFF);
+    sub_hdr[4] = (uint8_t)(frame_id & 0xFF);
+    sub_hdr[5] = (uint8_t)((frame_id >> 8) & 0xFF);
+    sub_hdr[6] = (uint8_t)(jpeg_len & 0xFF);
+    sub_hdr[7] = (uint8_t)((jpeg_len >> 8) & 0xFF);
+    sub_hdr[8] = (uint8_t)((jpeg_len >> 16) & 0xFF);
+    sub_hdr[9] = (uint8_t)((jpeg_len >> 24) & 0xFF);
+
+    /* Đóng gói khung UART thủ công:
+     * [MAGIC 2B][TYPE 1B][LEN 4B][sub_hdr 10B][jpeg NB][CRC 2B]
+     * LEN = 10 + jpeg_len (tổng payload)
+     * CRC tính trên: TYPE + LEN + sub_hdr + jpeg */
+    size_t total_payload = 10 + jpeg_len;
+    uint8_t frame_hdr[7];
+    frame_hdr[0] = 0xAA;
+    frame_hdr[1] = 0x55;
+    frame_hdr[2] = FRAME_TYPE_IMAGE;
+    frame_hdr[3] = (uint8_t)(total_payload & 0xFF);
+    frame_hdr[4] = (uint8_t)((total_payload >> 8) & 0xFF);
+    frame_hdr[5] = (uint8_t)((total_payload >> 16) & 0xFF);
+    frame_hdr[6] = (uint8_t)((total_payload >> 24) & 0xFF);
+
+    uint16_t crc = crc16_ccitt_false_init();
+    crc = crc16_ccitt_false_update(crc, frame_hdr + 2, 5); // TYPE + LEN
+    crc = crc16_ccitt_false_update(crc, sub_hdr, 10);
+    crc = crc16_ccitt_false_update(crc, jpeg, jpeg_len);
+
+    Serial.write(frame_hdr, sizeof(frame_hdr));
+    Serial.write(sub_hdr, sizeof(sub_hdr));
+    Serial.write(jpeg, jpeg_len);
+    uint8_t crc_bytes[2] = { (uint8_t)(crc & 0xFF), (uint8_t)((crc >> 8) & 0xFF) };
+    Serial.write(crc_bytes, sizeof(crc_bytes));
+}
+
 
 /* ================================================================
  *  KHỞI TẠO BỘ NHỚ
  *
- *  Cấp phát TẤT CẢ buffer PSRAM ngay từ đầu:
- *  - 4 assembly buffers × 64KB = 256KB
- *  - 1 latest_frame buffer × 64KB = 64KB
- *  - Tổng: 320KB PSRAM
+ *  [ĐÃ ĐỔI] Cấp phát buffer SRAM/PSRAM tự động qua alloc_buffer():
+ *  - MAX_CONCURRENT_FRAMES assembly buffers × 64KB
+ *    (hiện tại = 1 × 64KB = 64KB)
+ *  - KHÔNG còn latest_frame buffer riêng (tiết kiệm 64KB)
+ *  - KHÔNG còn uart_tx_buffer riêng (tiết kiệm 64KB+10B)
+ *  - Tổng hiện tại: ~64KB — vừa SRAM nội bộ ESP32
  *
  *  Tại sao pre-allocate?
  *  ─────────────────────
@@ -176,14 +361,34 @@ bool ip_printed = false;
  *  - Nếu không đủ RAM → fail ngay lập tức trong setup()
  *    (thay vì crash random runtime)
  * ================================================================ */
+
+/* alloc_buffer() — wrapper cấp phát bộ nhớ với fallback tự động.
+ *
+ * Ưu tiên PSRAM (ps_malloc) nếu board có PSRAM gắn sẵn.
+ * Nếu không có hoặc ps_malloc thất bại, fallback về malloc()
+ * trên SRAM nội bộ. Hành vi này cho phép code chạy được trên cả
+ * ESP32-WROOM (không PSRAM) lẫn ESP32-CAM/WROVER (có PSRAM) mà
+ * không cần sửa thêm gì sau này khi đổi board. */
+static uint8_t* alloc_buffer(size_t size) {
+    uint8_t* p = (uint8_t*)ps_malloc(size); // ưu tiên PSRAM nếu có
+    if (p == NULL) p = (uint8_t*)malloc(size); // fallback SRAM nội bộ
+    return p;
+}
+
 bool init_memory() {
-    Serial.println("[MEM] Dang cap phat buffer PSRAM...");
+    bool using_psram = psramFound();
+    DBGF("[MEM] Loai bo nho: %s\n", using_psram ? "PSRAM" : "SRAM noi bo");
+    DBGF("[MEM] Heap truoc cap phat: %d bytes\n", ESP.getFreeHeap());
+    DBGF("[MEM] Du kien cap phat: %d bytes (%d KB)\n",
+         MAX_CONCURRENT_FRAMES * (int)MAX_FRAME_SIZE,
+         (MAX_CONCURRENT_FRAMES * (int)MAX_FRAME_SIZE) / 1024);
 
     /* Cấp phát buffer cho mỗi assembly slot */
     for (int i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
-        assembly_buffers[i] = (uint8_t*)ps_malloc(MAX_FRAME_SIZE);
+        /* [ĐÃ ĐỔI] ps_malloc() → alloc_buffer() để fallback về SRAM */
+        assembly_buffers[i] = alloc_buffer(MAX_FRAME_SIZE);
         if (assembly_buffers[i] == NULL) {
-            Serial.printf("[MEM] THAT BAI: Khong cap phat duoc buffer slot %d (%d bytes)\n",
+            DBGF("[MEM] THAT BAI: Khong cap phat duoc buffer slot %d (%d bytes)\n",
                           i, MAX_FRAME_SIZE);
             return false;
         }
@@ -193,18 +398,24 @@ bool init_memory() {
         assemblies[i].jpeg_buffer = assembly_buffers[i];
     }
 
-    /* Cấp phát buffer cho frame hoàn chỉnh mới nhất */
-    latest_frame = (uint8_t*)ps_malloc(MAX_FRAME_SIZE);
-    if (latest_frame == NULL) {
-        Serial.println("[MEM] THAT BAI: Khong cap phat duoc latest_frame buffer");
-        return false;
-    }
+    /* [ĐÃ XÓA] Không còn cấp phát latest_frame buffer riêng.
+     * latest_frame bây giờ là con trỏ chỉ vào assembly_buffers[slot]
+     * của frame vừa ghép xong — xem receive_and_reassemble(). */
 
-    Serial.printf("[MEM] Da cap phat %d assembly slots + 1 latest frame\n",
-                  MAX_CONCURRENT_FRAMES);
-    Serial.printf("[MEM] Tong PSRAM su dung: ~%d KB\n",
-                  (MAX_CONCURRENT_FRAMES + 1) * MAX_FRAME_SIZE / 1024);
-    Serial.printf("[MEM] PSRAM con lai: %d bytes\n", ESP.getFreePsram());
+    /* [ĐÃ XÓA] Không còn cấp phát uart_tx_buffer riêng.
+     * send_image_frame() tự tạo sub-header 10 byte trên stack và
+     * gửi thẳng từ assembly buffer mà không cần copy thêm. */
+
+    size_t total_allocated = (size_t)MAX_CONCURRENT_FRAMES * MAX_FRAME_SIZE;
+    DBGF("[MEM] Da cap phat %d assembly slot(s), tong: %d bytes (%d KB)\n",
+                  MAX_CONCURRENT_FRAMES,
+                  (int)total_allocated,
+                  (int)(total_allocated / 1024));
+    if (using_psram) {
+        DBGF("[MEM] PSRAM con lai: %d bytes\n", ESP.getFreePsram());
+    } else {
+        DBGF("[MEM] Heap con lai sau cap phat: %d bytes\n", ESP.getFreeHeap());
+    }
 
     return true;
 }
@@ -270,7 +481,7 @@ int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
             memset(assemblies[i].chunk_received, 0,
                    sizeof(assemblies[i].chunk_received));
 
-            Serial.printf("[ASM] Slot %d: bat dau ghep frame (node=%u, frame=%d, chunks=%d)\n",
+            DBGF("[ASM] Slot %d: bat dau ghep frame (node=%u, frame=%d, chunks=%d)\n",
                           i, node_id, frame_id, total_chunks);
             return i;
         }
@@ -291,7 +502,7 @@ int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
         }
     }
 
-    Serial.printf("[ASM] EVICTION: Huy slot %d (node=%u, frame=%d, nhan %d/%d chunks)\n",
+    DBGF("[ASM] EVICTION: Huy slot %d (node=%u, frame=%d, nhan %d/%d chunks)\n",
                   oldest_idx,
                   assemblies[oldest_idx].node_id,
                   assemblies[oldest_idx].frame_id,
@@ -366,19 +577,19 @@ void receive_and_reassemble(uint32_t from, String &msg) {
      *   - Quá nhiều chunk (total_chunks > MAX_CHUNKS_PER_FRAME)
      */
     if (header.chunk_index >= header.total_chunks) {
-        Serial.printf("[ASM] Header KHONG HOP LE: idx=%d >= total=%d\n",
+        DBGF("[ASM] Header KHONG HOP LE: idx=%d >= total=%d\n",
                       header.chunk_index, header.total_chunks);
         return;
     }
 
     if (header.total_chunks > MAX_CHUNKS_PER_FRAME) {
-        Serial.printf("[ASM] Qua nhieu chunk: %d > %d\n",
+        DBGF("[ASM] Qua nhieu chunk: %d > %d\n",
                       header.total_chunks, MAX_CHUNKS_PER_FRAME);
         return;
     }
 
     if (header.payload_len > MAX_CHUNK_PAYLOAD || header.payload_len == 0) {
-        Serial.printf("[ASM] Payload khong hop le: %d bytes\n", header.payload_len);
+        DBGF("[ASM] Payload khong hop le: %d bytes\n", header.payload_len);
         return;
     }
 
@@ -395,7 +606,7 @@ void receive_and_reassemble(uint32_t from, String &msg) {
         slot = allocate_assembly_slot(header.node_id, header.frame_id,
                                       header.total_chunks);
         if (slot < 0) {
-            Serial.println("[ASM] Khong the cap phat slot!");
+            DBGLN("[ASM] Khong the cap phat slot!");
             return;
         }
     }
@@ -441,7 +652,7 @@ void receive_and_reassemble(uint32_t from, String &msg) {
 
     // Kiểm tra tràn buffer (an toàn)
     if (offset + header.payload_len > MAX_FRAME_SIZE) {
-        Serial.printf("[ASM] TRAN BUFFER: offset=%d + len=%d > %d\n",
+        DBGF("[ASM] TRAN BUFFER: offset=%d + len=%d > %d\n",
                       (int)offset, header.payload_len, MAX_FRAME_SIZE);
         return;
     }
@@ -477,23 +688,28 @@ void receive_and_reassemble(uint32_t from, String &msg) {
      * HTTP streaming loop sẽ kiểm tra flag và gửi frame.
      */
     if (fa.received_count >= fa.total_chunks) {
-        Serial.printf("[ASM] HOAN THANH! node=%u, frame=%d, size=%d bytes, chunks=%d\n",
+        DBGF("[ASM] HOAN THANH! node=%u, frame=%d, size=%d bytes, chunks=%d\n",
                       fa.node_id, fa.frame_id,
                       fa.jpeg_total_len, fa.total_chunks);
 
-        /* Copy sang latest_frame buffer
+        /* [ĐÃ ĐỔI] Bỏ bước memcpy sang latest_frame buffer riêng.
+         * Thay bằng: latest_frame trỏ thẳng vào fa.jpeg_buffer (assembly buffer).
          *
-         * Tại sao copy thay vì swap pointer?
-         * - latest_frame đang có thể đang được đọc bởi HTTP server
-         * - Copy nhanh (~10-15μs cho 15KB từ PSRAM)
-         * - An toàn hơn pointer swap trong môi trường single-thread
-         *   nhưng có callback
+         * An toàn vì:
+         * - Arduino loop chạy đơn luồng, không có race condition thật sự
+         * - Slot (fa.active = false) chỉ bị tái dụng ở lần nhận frame tiếp theo,
+         *   tức là sau khi loop() đã xử lý xong new_frame_available
+         * - Với MAX_CONCURRENT_FRAMES=1, slot 0 luôn là slot duy nhất
          */
-        memcpy(latest_frame, fa.jpeg_buffer, fa.jpeg_total_len);
-        latest_frame_len   = fa.jpeg_total_len;
+        latest_frame        = fa.jpeg_buffer; // trỏ trực tiếp, không copy
+        latest_frame_len    = fa.jpeg_total_len;
         new_frame_available = true;
 
-        // Giải phóng slot — buffer PSRAM giữ nguyên cho tái sử dụng
+        // Gửi ngay qua UART cho middleware (song song với HTTP MJPEG cũ,
+        // không thay thế — xem UART_PROTOCOL.md §4.1)
+        send_image_frame(fa.node_id, fa.frame_id, fa.jpeg_buffer, fa.jpeg_total_len);
+
+        // Giải phóng slot — buffer giữ nguyên cho tái sử dụng
         fa.active = false;
 
         frames_completed++;
@@ -527,7 +743,7 @@ void cleanup_stale_frames() {
             uint32_t elapsed = now - assemblies[i].start_time_ms;
 
             if (elapsed > REASSEMBLY_TIMEOUT_MS) {
-                Serial.printf("[ASM] TIMEOUT: Huy frame (slot=%d, node=%u, frame=%d, nhan %d/%d, cho %d ms)\n",
+                DBGF("[ASM] TIMEOUT: Huy frame (slot=%d, node=%u, frame=%d, nhan %d/%d, cho %d ms)\n",
                               i,
                               assemblies[i].node_id,
                               assemblies[i].frame_id,
@@ -633,7 +849,7 @@ void serve_html_page(WiFiClient &client) {
  * - Ổn định hơn trên ESP32
  */
 void send_mjpeg_frame(WiFiClient &client) {
-    if (!new_frame_available || latest_frame_len == 0) {
+    if (!new_frame_available || latest_frame == NULL || latest_frame_len == 0) {
         return;  // Chưa có frame mới
     }
 
@@ -662,7 +878,7 @@ void send_mjpeg_frame(WiFiClient &client) {
 
         if (written == 0) {
             // Client ngắt kết nối giữa chừng
-            Serial.println("[HTTP] Client ngat ket noi khi dang gui frame");
+            DBGLN("[HTTP] Client ngat ket noi khi dang gui frame");
             break;
         }
 
@@ -691,7 +907,7 @@ void handle_http_clients() {
         WiFiClient client = httpServer.available();
         if (!client) return;  // Không có client mới
 
-        Serial.println("[HTTP] Client moi ket noi!");
+        DBGLN("[HTTP] Client moi ket noi!");
 
         /* Đọc request line — timeout 2 giây
          *
@@ -736,7 +952,7 @@ void handle_http_clients() {
             streamClient     = client;
             client_streaming = true;
 
-            Serial.println("[HTTP] MJPEG stream BAT DAU");
+            DBGLN("[HTTP] MJPEG stream BAT DAU");
 
         } else if (request_line.indexOf("GET /status") >= 0) {
             /* ── Status endpoint (JSON) ─────────────────── */
@@ -758,7 +974,7 @@ void handle_http_clients() {
             serve_html_page(client);
             delay(10);
             client.stop();
-            Serial.println("[HTTP] Trang HTML da gui");
+            DBGLN("[HTTP] Trang HTML da gui");
         }
 
         return;
@@ -769,7 +985,7 @@ void handle_http_clients() {
         // Client ngắt kết nối
         streamClient.stop();
         client_streaming = false;
-        Serial.println("[HTTP] Stream client NGAT KET NOI");
+        DBGLN("[HTTP] Stream client NGAT KET NOI");
         return;
     }
 
@@ -802,17 +1018,41 @@ void receivedCallback(uint32_t from, String &msg) {
  * Callback khi node mới kết nối vào Mesh.
  */
 void newConnectionCallback(uint32_t nodeId) {
-    Serial.printf("[MESH] Node moi ket noi: %u\n", nodeId);
+    DBGF("[MESH] Node moi ket noi: %u\n", nodeId);
 }
 
 /**
- * Callback khi topology Mesh thay đổi.
+ * Callback khi MẤT một kết nối trong mesh (node rớt/di chuyển ra ngoài
+ * vùng phủ sóng). Đánh dấu mốc thời gian để đo self-healing — xem
+ * changedConnectionCallback() bên dưới, nơi tính khoảng thời gian đã trôi
+ * qua khi mesh báo topology ổn định trở lại.
+ *
+ * LƯU Ý: tên hàm onDroppedConnection() theo API painlessMesh — nếu bản
+ * thư viện bạn cài không có hàm này (một số version cũ hơn có thể khác
+ * tên/không hỗ trợ), bỏ dòng đăng ký trong setup() và phần đo self-healing
+ * sẽ không hoạt động (last_self_heal_ms luôn = -1), các phần khác không
+ * bị ảnh hưởng.
+ */
+void droppedConnectionCallback(uint32_t nodeId) {
+    last_disconnect_ms = millis();
+    DBGF("[MESH] MAT KET NOI voi node %u — bat dau do thoi gian self-healing\n", nodeId);
+}
+
+/**
+ * Callback khi topology Mesh thay đổi (bao gồm cả lúc mesh tự định tuyến
+ * lại xong sau khi rớt 1 node — đây là điểm dùng để tính self-healing).
  */
 void changedConnectionCallback() {
     auto nodes = mesh.getNodeList();
-    Serial.printf("[MESH] Topology thay doi. Tong node: %d\n", nodes.size());
+    DBGF("[MESH] Topology thay doi. Tong node: %d\n", nodes.size());
     for (auto &id : nodes) {
-        Serial.printf("  - Node: %u\n", id);
+        DBGF("  - Node: %u\n", id);
+    }
+
+    if (last_disconnect_ms != 0) {
+        last_self_heal_ms = (int32_t)(millis() - last_disconnect_ms);
+        DBGF("[MESH] SELF-HEALING: mang khoi phuc sau %ld ms\n", (long)last_self_heal_ms);
+        last_disconnect_ms = 0; // reset, san sang cho lan rot ket noi tiep theo
     }
 }
 
@@ -821,34 +1061,41 @@ void changedConnectionCallback() {
  *  SETUP — Khởi tạo Root Node
  * ================================================================ */
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(PC_UART_BAUD);   // 921600bps — xem UART_PROTOCOL.md, KHONG con 115200 debug
     delay(1000);
 
-    Serial.println();
-    Serial.println("╔══════════════════════════════════════════╗");
-    Serial.println("║  ESP32 Mesh Video — ROOT NODE            ║");
-    Serial.println("║  Reassembly + MJPEG HTTP Server          ║");
-    Serial.println("╚══════════════════════════════════════════╝");
-    Serial.println();
+    DBGLN("");
+    DBGLN("╔══════════════════════════════════════════╗");
+    DBGLN("║  ESP32 Mesh Video — ROOT NODE            ║");
+    DBGLN("║  Reassembly + MJPEG HTTP Server          ║");
+    DBGLN("╚══════════════════════════════════════════╝");
+    DBGLN("");
 
-    /* ── Kiểm tra PSRAM ─────────────────────────────────── */
-    if (!psramFound()) {
-        Serial.println("[SYS] LOI NGHIEM TRONG: Khong co PSRAM!");
-        Serial.println("[SYS] Root Node CAN PSRAM de cap phat buffer ghep anh.");
-        Serial.println("[SYS] Kiem tra: Tools > PSRAM > Enabled");
-        while (true) { delay(1000); }
+    /* ── Kiểm tra PSRAM & chọn nguồn bộ nhớ ───────────────
+     *
+     * [ĐÃ ĐỔI] Bỏ khối dừng cứng khi không có PSRAM.
+     * Code giờ tự động fallback về SRAM nội bộ qua alloc_buffer()
+     * trong init_memory(). Log cảnh báo để dễ phân biệt khi test
+     * trên Serial Monitor (baud 921600).
+     */
+    if (psramFound()) {
+        DBGF("[SYS] PSRAM: CO (%d bytes kha dung) — se uu tien dung PSRAM\n",
+             ESP.getFreePsram());
+    } else {
+        DBGLN("[SYS] PSRAM: KHONG CO — chuyen sang dung SRAM noi bo (dung luong nho hon)");
+        DBGLN("[SYS] (Binh thuong voi ESP32-WROOM-32D, se chay duoc voi buffer giam)");
     }
-    Serial.printf("[SYS] PSRAM: %d bytes kha dung\n", ESP.getFreePsram());
-    Serial.printf("[SYS] Heap: %d bytes kha dung\n", ESP.getFreeHeap());
+    DBGF("[SYS] Heap truoc init_memory(): %d bytes kha dung\n", ESP.getFreeHeap());
 
     /* ── Cấp phát bộ nhớ ────────────────────────────────── */
     if (!init_memory()) {
-        Serial.println("[SYS] LOI NGHIEM TRONG: Khong cap phat duoc bo nho!");
+        DBGLN("[SYS] LOI NGHIEM TRONG: Khong cap phat duoc bo nho du ca SRAM lan PSRAM!");
+        DBGLN("[SYS] Giam MAX_CONCURRENT_FRAMES hoac MAX_FRAME_SIZE trong mesh_config.h");
         while (true) { delay(1000); }
     }
 
     /* ── Khởi tạo painlessMesh ──────────────────────────── */
-    Serial.println("\n[MESH] Dang khoi tao painlessMesh (Root mode)...");
+    DBGLN("\n[MESH] Dang khoi tao painlessMesh (Root mode)...");
 
     mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
     mesh.init(MESH_SSID, MESH_PASSWORD, MESH_PORT);
@@ -856,6 +1103,7 @@ void setup() {
     mesh.onReceive(&receivedCallback);
     mesh.onNewConnection(&newConnectionCallback);
     mesh.onChangedConnections(&changedConnectionCallback);
+    mesh.onDroppedConnection(&droppedConnectionCallback);  // do self-healing, xem ghi chu tren ham nay
 
     /* Đặt node này làm ROOT
      *
@@ -887,22 +1135,22 @@ void setup() {
      */
     mesh.stationManual(STATION_SSID, STATION_PASSWORD);
 
-    Serial.printf("[MESH] Root Node ID: %u\n", mesh.getNodeId());
-    Serial.printf("[MESH] Mesh SSID: %s\n", MESH_SSID);
-    Serial.printf("[MESH] Ket noi WiFi: %s\n", STATION_SSID);
+    DBGF("[MESH] Root Node ID: %u\n", mesh.getNodeId());
+    DBGF("[MESH] Mesh SSID: %s\n", MESH_SSID);
+    DBGF("[MESH] Ket noi WiFi: %s\n", STATION_SSID);
 
     /* ── Khởi tạo HTTP Server ───────────────────────────── */
     httpServer.begin();
-    Serial.printf("[HTTP] Server KHOI DONG tren port %d\n", HTTP_SERVER_PORT);
+    DBGF("[HTTP] Server KHOI DONG tren port %d\n", HTTP_SERVER_PORT);
 
     /* ── Thông tin cho người dùng ────────────────────────── */
-    Serial.println();
-    Serial.println("========================================");
-    Serial.println("[SYS] ROOT NODE da san sang!");
-    Serial.println("[SYS] Dang cho ket noi WiFi de lay IP...");
-    Serial.printf("[SYS] Reassembly timeout: %d ms\n", REASSEMBLY_TIMEOUT_MS);
-    Serial.printf("[SYS] Max concurrent frames: %d\n", MAX_CONCURRENT_FRAMES);
-    Serial.println("========================================\n");
+    DBGLN("");
+    DBGLN("========================================");
+    DBGLN("[SYS] ROOT NODE da san sang!");
+    DBGLN("[SYS] Dang cho ket noi WiFi de lay IP...");
+    DBGF("[SYS] Reassembly timeout: %d ms\n", REASSEMBLY_TIMEOUT_MS);
+    DBGF("[SYS] Max concurrent frames: %d\n", MAX_CONCURRENT_FRAMES);
+    DBGLN("========================================\n");
 
     last_stats_time = millis();
 }
@@ -930,13 +1178,13 @@ void loop() {
     if (!ip_printed) {
         IPAddress ip = WiFi.localIP();
         if (ip != IPAddress(0, 0, 0, 0)) {
-            Serial.println();
-            Serial.println("╔══════════════════════════════════════════╗");
-            Serial.printf("║  HTTP Server: http://%s/           \n", ip.toString().c_str());
-            Serial.printf("║  MJPEG Stream: http://%s/stream    \n", ip.toString().c_str());
-            Serial.printf("║  Status JSON:  http://%s/status    \n", ip.toString().c_str());
-            Serial.println("╚══════════════════════════════════════════╝");
-            Serial.println();
+            DBGLN("");
+            DBGLN("╔══════════════════════════════════════════╗");
+            DBGF("║  HTTP Server: http://%s/           \n", ip.toString().c_str());
+            DBGF("║  MJPEG Stream: http://%s/stream    \n", ip.toString().c_str());
+            DBGF("║  Status JSON:  http://%s/status    \n", ip.toString().c_str());
+            DBGLN("╚══════════════════════════════════════════╝");
+            DBGLN("");
             ip_printed = true;
         }
     }
@@ -947,11 +1195,19 @@ void loop() {
     /* [4] Phục vụ HTTP clients */
     handle_http_clients();
 
+    /* [4b] Gửi khung TELEMETRY cho middleware định kỳ (xem UART_PROTOCOL.md §4.2) */
+    static uint32_t last_telemetry_time = 0;
+    uint32_t now_telemetry = millis();
+    if (now_telemetry - last_telemetry_time >= TELEMETRY_SEND_INTERVAL_MS) {
+        last_telemetry_time = now_telemetry;
+        send_telemetry_frame();
+    }
+
     /* [5] In thống kê định kỳ (mỗi 15 giây) */
     uint32_t now = millis();
     if (now - last_stats_time >= 15000) {
         last_stats_time = now;
-        Serial.printf("[STAT] Frames OK: %d | Dropped: %d | Chunks: %d | "
+        DBGF("[STAT] Frames OK: %d | Dropped: %d | Chunks: %d | "
                       "Heap: %d | PSRAM: %d | Nodes: %d\n",
                       frames_completed, frames_dropped, chunks_received,
                       ESP.getFreeHeap(), ESP.getFreePsram(),

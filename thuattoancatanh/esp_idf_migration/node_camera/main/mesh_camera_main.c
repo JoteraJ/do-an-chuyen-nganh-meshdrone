@@ -84,6 +84,10 @@ static void capture_and_send_task(void *arg) {
         uint16_t total_chunks = calc_total_chunks(jpeg_len);
 
         int64_t t_start = esp_timer_get_time();
+        // Moc thoi gian dung chung cho MOI chunk cua frame nay -> Root dung de
+        // tinh latency end-to-end (frame HOAN THANH luc nao - chup luc nao).
+        // Xem ghi chu han che dong bo dong ho trong chunk_protocol.h.
+        uint32_t capture_ts_ms = (uint32_t)(t_start / 1000);
 
         for (uint16_t i = 0; i < total_chunks; i++) {
             size_t offset = (size_t)i * MAX_CHUNK_PAYLOAD;
@@ -96,6 +100,7 @@ static void capture_and_send_task(void *arg) {
                 .chunk_index  = i,
                 .total_chunks = total_chunks,
                 .payload_len  = payload_len,
+                .capture_ts_ms = capture_ts_ms,
             };
 
             size_t packet_len = build_chunk_packet(&header, fake_jpeg + offset, packet_buf, sizeof(packet_buf));

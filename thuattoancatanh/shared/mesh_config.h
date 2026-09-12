@@ -154,4 +154,20 @@
 #define HTTP_SERVER_PORT    80          // Port HTTP server
 #define MJPEG_BOUNDARY      "frame"    // Boundary cho multipart MJPEG
 
+/* ============================================================
+ *  8. UART SANG MIDDLEWARE PC (xem ../UART_PROTOCOL.md)
+ *
+ *  Root Node gửi TOÀN BỘ output (log debug, ảnh JPEG đã ghép,
+ *  telemetry) qua UART này dưới dạng khung nhị phân có CRC —
+ *  KHÔNG in text thô như bản debug cũ, vì ESP32-CAM chỉ có một
+ *  UART thật sự lộ ra ngoài (qua đầu nạp FTDI), phải dùng chung
+ *  cho cả log lẫn dữ liệu nhị phân.
+ *
+ *  921600bps là quyết định đã chốt trong tài liệu đồ án (mục
+ *  MIDDLEWARE & DASHBOARD) — bản debug cũ của file này vẫn để
+ *  115200, đã sửa lại cho khớp.
+ * ============================================================ */
+#define PC_UART_BAUD               921600
+#define TELEMETRY_SEND_INTERVAL_MS 2000    // Chu kỳ gửi khung TELEMETRY
+
 #endif // MESH_CONFIG_H

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartNetworkX Dashboard</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Client Socket.IO — nối tới middleware Node.js (server.js) chạy cùng origin -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    /* Custom scrollbar for terminal logs */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-200 antialiased overflow-x-hidden">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    /* ================================================================
+     *  GHI CHU QUAN TRONG — bản này đã bỏ toàn bộ dữ liệu giả lập
+     *  (Math.random, setTimeout kịch bản dựng sẵn, placehold.co) của
+     *  bản mockup gốc (tài liệu/smartnetworkx_dashboard.tsx). Toàn bộ
+     *  số liệu ở đây đến từ middleware qua Socket.IO, theo đúng
+     *  UART_PROTOCOL.md. Những gì Root Node CHƯA gửi được (RSSI từng
+     *  liên kết, cây phân cấp đầy đủ ai-là-con-của-ai, throughput/
+     *  latency đo thực) thì dashboard KHÔNG bịa ra — hiển thị rõ
+     *  "chưa có dữ liệu" thay vì số giả, để không gây hiểu nhầm lúc
+     *  demo trước hội đồng.
+     * ================================================================ */
+
+    const IconRoot = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M12 2v20"/><path d="M8 6h8"/><path d="M8 18h8"/></svg>
+    );
+
+    const IconNode = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/><circle cx="12" cy="12" r="4"/><path d="m14.8 9.2 2.8-2.8"/><path d="m6.4 17.6 2.8-2.8"/><path d="m6.4 6.4 2.8 2.8"/><path d="m14.8 14.8 2.8 2.8"/></svg>
+    );
+
+    const IconPlug = ({ ok }) => (
+      <div className={`w-2 h-2 rounded-full ${ok ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-red-500'}`}></div>
+    );
+
+    function timeAgo(ts) {
+      if (!ts) return 'chưa có';
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 2) return 'vừa xong';
+      if (s < 60) return `${s}s trước`;
+      return `${Math.floor(s / 60)}p trước`;
+    }
+
+    function MeshDashboard() {
+      // ── Kết nối tới middleware ──────────────────────────────
+      const [socketConnected, setSocketConnected] = useState(false);
+      const [serialConnected, setSerialConnected] = useState(false);
+
+      // ── Dữ liệu thật nhận qua Socket.IO ──────────────────────
+      const [telemetry, setTelemetry] = useState(null);       // xem UART_PROTOCOL.md mục 4.2
+      const [frameByNode, setFrameByNode] = useState({});     // nodeId -> { jpegBase64, frameId, ts }
+      const [frameCount, setFrameCount] = useState(0);
+      const [fps, setFps] = useState(0);
+      const [logs, setLogs] = useState([
+        { time: new Date().toLocaleTimeString('vi-VN'), msg: 'Dashboard khởi động, đang chờ middleware...' },
+      ]);
+
+      const frameTimesRef = useRef([]);          // để ước lượng FPS thực tế
+      const lastSelfHealRef = useRef(undefined);  // để chỉ log khi giá trị self-heal THAY ĐỔI
+
+      const addLog = (msg) => {
+        setLogs((prev) => [{ time: new Date().toLocaleTimeString('vi-VN'), msg }, ...prev].slice(0, 10));
+      };
+
+      useEffect(() => {
+        const socket = io();
+
+        socket.on('connect', () => {
+          setSocketConnected(true);
+          addLog('Đã kết nối tới middleware (Socket.IO).');
+        });
+        socket.on('disconnect', () => {
+          setSocketConnected(false);
+          setSerialConnected(false);
+          addLog('Mất kết nối tới middleware!');
+        });
+        socket.on('status', (s) => {
+          setSerialConnected(!!s.serialConnected);
+          addLog(s.serialConnected
+            ? `Middleware đã mở cổng ${s.portName} @ ${s.baudRate} bps`
+            : `Middleware CHƯA mở được cổng ${s.portName} — kiểm tra board đã cắm & đúng COM chưa`);
+        });
+
+        socket.on('telemetry', (t) => {
+          setTelemetry(t);
+          setSerialConnected(true);
+
+          // Chỉ log sự kiện self-healing khi số liệu thay đổi thật (không log lặp mỗi lần telemetry đến)
+          if (typeof t.last_self_heal_ms === 'number' && t.last_self_heal_ms >= 0 &&
+              t.last_self_heal_ms !== lastSelfHealRef.current) {
+            if (lastSelfHealRef.current !== undefined) {
+              addLog(`SELF-HEALING: mesh khôi phục kết nối sau ${t.last_self_heal_ms} ms.`);
+            }
+            lastSelfHealRef.current = t.last_self_heal_ms;
+          }
+        });
+
+        socket.on('frame', (data) => {
+          setFrameCount((prev) => prev + 1);
+          setFrameByNode((prev) => ({
+            ...prev,
+            [data.nodeId]: { jpegBase64: data.jpegBase64, frameId: data.frameId, ts: Date.now() },
+          }));
+
+          const now = Date.now();
+          const times = frameTimesRef.current;
+          times.push(now);
+          while (times.length > 10) times.shift();
+          if (times.length >= 2) {
+            const avgIntervalMs = (times[times.length - 1] - times[0]) / (times.length - 1);
+            if (avgIntervalMs > 0) setFps(1000 / avgIntervalMs);
+          }
+        });
+
+        return () => socket.disconnect();
+      }, []);
+
+      // ── Xây danh sách node hiển thị từ telemetry thật ────────
+      // LƯU Ý: node_ids là danh sách PHẲNG (xem UART_PROTOCOL.md §4.2) —
+      // chưa có quan hệ cha/con thật, nên cây bên dưới chỉ vẽ Root + các
+      // node trực tiếp, KHÔNG suy diễn tầng sâu hơn khi chưa có dữ liệu đó.
+      const nodeIds = telemetry?.node_ids || [];
+
+      const renderTree = () => (
+        <div className="flex flex-col space-y-2 w-full">
+          <div className="flex items-center p-3 rounded-lg border bg-slate-800 border-slate-700 shadow-sm">
+            <div className="mr-3 p-2 bg-slate-900 rounded-md"><IconRoot /></div>
+            <div className="flex-1">
+              <div className="flex justify-between items-center">
+                <h4 className="text-sm font-semibold text-slate-200">Root Node</h4>
+                <span className="text-xs font-mono text-slate-400">
+                  layer {telemetry?.layer ?? '?'}
+                </span>
+              </div>
+              <div className="flex gap-3 text-xs mt-1 font-mono text-slate-500">
+                <span>{nodeIds.length} node con đang thấy</span>
+              </div>
+            </div>
+          </div>
+
+          {nodeIds.length === 0 && (
+            <div className="ml-8 pl-4 border-l-2 border-slate-700 border-dashed text-xs text-slate-500 font-mono py-2">
+              {serialConnected ? 'Chưa có node nào tham gia mesh...' : 'Đang chờ Root Node kết nối UART...'}
+            </div>
+          )}
+
+          {nodeIds.length > 0 && (
+            <div className="ml-8 mt-1 border-l-2 border-slate-700 border-dashed pl-4 flex flex-col space-y-2">
+              {nodeIds.map((id) => (
+                <div key={id} className="flex items-center p-3 rounded-lg border bg-slate-800/60 border-slate-700 shadow-sm">
+                  <div className="mr-3 p-2 bg-slate-900 rounded-md"><IconNode /></div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-semibold text-slate-200">Node {id}</h4>
+                    <div className="flex gap-3 text-xs mt-1 font-mono text-slate-500">
+                      <span>ID: {id}</span>
+                      {frameByNode[id] && <span>Ảnh cuối: {timeAgo(frameByNode[id].ts)}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="ml-8 pl-4 text-[11px] text-slate-600 italic">
+            * Cây hiện chỉ có 1 tầng (Root → node) — cây phân cấp đầy đủ (ai relay cho ai) cần
+            Root tự báo cáo thêm quan hệ cha/con, xem TODO trong node_root.ino.
+          </div>
+        </div>
+      );
+
+      const frames = Object.entries(frameByNode);
+
+      return (
+        <div className="min-h-screen bg-slate-950 font-sans p-4 sm:p-6 lg:p-8">
+          {/* HEADER */}
+          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-800">
+            <div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">SmartNetworkX <span className="text-blue-500 font-light">Dashboard</span></h1>
+              <p className="text-sm text-slate-400 mt-1">Mạng Ad-hoc phi tập trung: Drone &amp; UGV — dữ liệu thật qua UART_PROTOCOL.md</p>
+            </div>
+            <div className="flex flex-col items-end gap-1.5">
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm border ${
+                serialConnected ? 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50' : 'bg-red-900/20 text-red-400 border-red-800/50'
+              }`}>
+                <IconPlug ok={serialConnected} />
+                {serialConnected ? 'Root Node đang gửi dữ liệu' : 'Chưa nhận dữ liệu từ Root'}
+              </div>
+              <div className="text-[11px] text-slate-500 font-mono">
+                middleware: {socketConnected ? 'connected' : 'disconnected'}
+              </div>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            {/* LEFT PANEL: TOPOLOGY TREE */}
+            <div className="lg:col-span-4 flex flex-col gap-6">
+              <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-xl backdrop-blur-sm">
+                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                  Mesh Topology
+                </h2>
+                <div className="w-full">
+                  {renderTree()}
+                </div>
+              </div>
+
+              {/* TELEMETRY METRICS — chỉ hiện số liệu THẬT có trong UART_PROTOCOL.md §4.2 */}
+              <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-xl backdrop-blur-sm">
+                <h2 className="text-lg font-semibold text-white mb-4">Telemetry (Root Node)</h2>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                    <div className="text-slate-400 text-xs mb-1 font-medium">Frame ghép OK</div>
+                    <div className="text-2xl font-bold text-emerald-400 font-mono">{telemetry?.frames_ok ?? '—'}</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                    <div className="text-slate-400 text-xs mb-1 font-medium">Frame bị hủy</div>
+                    <div className="text-2xl font-bold text-red-400 font-mono">{telemetry?.frames_drop ?? '—'}</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                    <div className="text-slate-400 text-xs mb-1 font-medium">Chunk đã nhận</div>
+                    <div className="text-xl font-bold text-blue-400 font-mono">{telemetry?.chunks ?? '—'}</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                    <div className="text-slate-400 text-xs mb-1 font-medium">FPS thực tế (đo)</div>
+                    <div className="text-xl font-bold text-purple-400 font-mono">{fps > 0 ? fps.toFixed(1) : '—'}</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 col-span-2">
+                    <div className="text-slate-400 text-xs mb-1 font-medium">Self-healing gần nhất</div>
+                    <div className="text-lg font-bold font-mono text-yellow-400">
+                      {telemetry && typeof telemetry.last_self_heal_ms === 'number' && telemetry.last_self_heal_ms >= 0
+                        ? `${telemetry.last_self_heal_ms} ms`
+                        : 'chưa xảy ra'}
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 col-span-2 flex justify-between text-xs font-mono text-slate-400">
+                    <span>Heap: {telemetry?.heap_free != null ? `${Math.round(telemetry.heap_free / 1024)} KB` : '—'}</span>
+                    <span>PSRAM: {telemetry?.psram_free != null ? `${Math.round(telemetry.psram_free / 1024)} KB` : '—'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* MIDDLE PANEL: CAMERA FEEDS */}
+            <div className="lg:col-span-8 flex flex-col gap-6">
+
+              <div className="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
+                <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/90">
+                  <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                    Media Stream (Motion JPEG qua UART)
+                  </h2>
+                  <div className="text-xs text-slate-400 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-700/50 font-mono">
+                    {fps > 0 ? `~ ${fps.toFixed(1)} FPS đo được` : 'chưa có frame'} · tổng {frameCount}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1 p-1 bg-slate-950">
+                  {frames.length === 0 && (
+                    <div className="col-span-1 md:col-span-2 aspect-video flex flex-col items-center justify-center text-slate-600 font-mono border-2 border-slate-800 border-dashed">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-2 opacity-50"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                      Đang chờ ảnh từ Camera Node...
+                    </div>
+                  )}
+                  {frames.map(([nodeId, f]) => (
+                    <div key={nodeId} className="relative aspect-video bg-slate-950 rounded overflow-hidden group">
+                      <div className="absolute top-2 left-2 z-10 bg-black/60 text-white text-xs px-2 py-1 rounded backdrop-blur font-mono border border-white/10 shadow-lg">
+                        Node {nodeId} · frame #{f.frameId}
+                      </div>
+                      <img
+                        src={`data:image/jpeg;base64,${f.jpegBase64}`}
+                        alt={`Camera node ${nodeId}`}
+                        className="w-full h-full object-contain bg-black opacity-90 group-hover:opacity-100 transition-opacity"
+                      />
+                      <div className="absolute bottom-2 right-2 text-xs text-slate-300 font-mono bg-black/50 px-2 py-0.5 rounded border border-white/10">
+                        {timeAgo(f.ts)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* EVENT LOGS (Terminal Style) — log LOG-frame thật từ ESP32 qua UART */}
+              <div className="bg-[#0c1017] border border-slate-800 rounded-xl overflow-hidden shadow-xl flex-1 flex flex-col min-h-[250px]">
+                <div className="p-3 border-b border-slate-800 bg-slate-900/90 flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  <h3 className="text-sm font-mono text-slate-300">System Logs &amp; Routing Events (middleware)</h3>
+                </div>
+                <div className="p-4 flex-1 overflow-y-auto font-mono text-xs sm:text-sm space-y-2.5 h-48 max-h-72">
+                  {logs.map((log, i) => (
+                    <div key={i} className="flex gap-3 items-start opacity-90 hover:opacity-100 transition-opacity">
+                      <span className="text-slate-500 whitespace-nowrap shrink-0">[{log.time}]</span>
+                      <span className={`break-words ${
+                        log.msg.includes('CRITICAL') || log.msg.includes('Mất kết nối') ? 'text-red-400 font-bold' :
+                        log.msg.includes('SELF-HEALING') ? 'text-emerald-400' :
+                        log.msg.includes('CHƯA') ? 'text-yellow-400' : 'text-slate-300'
+                      }`}>
+                        {log.msg}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="animate-pulse text-slate-500 mt-2">█</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<MeshDashboard />);
+  </script>
+</body>
+</html>

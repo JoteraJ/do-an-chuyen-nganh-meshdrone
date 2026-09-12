@@ -1,0 +1,16 @@
+{
+  "name": "smartnetworkx-middleware",
+  "version": "1.0.0",
+  "description": "Middleware Node.js: doc UART tu Root Node (ESP32 painlessMesh) theo UART_PROTOCOL.md, phat lai qua Socket.IO cho dashboard",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test_protocol.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "serialport": "^12.0.0",
+    "socket.io": "^4.7.5"
+  }
+}

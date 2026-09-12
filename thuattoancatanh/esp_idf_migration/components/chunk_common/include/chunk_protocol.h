@@ -35,10 +35,22 @@ typedef struct {
     uint16_t chunk_index;    // Vi tri chunk trong frame (0-based)
     uint16_t total_chunks;   // Tong so chunk cua frame
     uint16_t payload_len;    // Kich thuoc payload thuc te (<= MAX_CHUNK_PAYLOAD)
+    uint32_t capture_ts_ms;  // Moc thoi gian (esp_timer_get_time()/1000) LUC BAT DAU
+                             // chup/gui frame nay o Camera Node — GIONG NHAU cho moi
+                             // chunk cung 1 frame. Root lay gia tri nay tru cho thoi
+                             // diem frame HOAN THANH de tinh latency end-to-end
+                             // (Phase 4 con thieu, xem README_MIGRATION.md muc 7).
+                             // Yeu cau dong ho 2 node dong bo it nhieu — vi day la
+                             // mang mesh 1 chieu (chua co NTP/time-sync giua cac
+                             // node), so nay chi CHINH XAC khi Camera Node va Root
+                             // duoc bat nguon/reset gan nhu cung luc (millis()=0 gan
+                             // nhau). Neu do lech nhieu, can them co che dong bo thoi
+                             // gian rieng (vd: esp_mesh_get_layer()+broadcast time-sync)
+                             // — ghi ro han che nay trong bao cao.
 } chunk_header_t;
 #pragma pack(pop)
 
-#define CHUNK_HEADER_SIZE   (sizeof(chunk_header_t))   // = 12 byte neu pack dung
+#define CHUNK_HEADER_SIZE   (sizeof(chunk_header_t))   // = 16 byte neu pack dung (them capture_ts_ms)
 
 /* Buffer toi da can cho 1 goi tin nhi phan hoan chinh (header + payload) */
 #define CHUNK_PACKET_MAX_SIZE  (CHUNK_HEADER_SIZE + MAX_CHUNK_PAYLOAD)

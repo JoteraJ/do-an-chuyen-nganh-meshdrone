@@ -55,6 +55,27 @@
 #include "base64_util.h"
 
 /* ────────────────────────────────────────────────────────────
+ *  chunk_log() — hook log dùng chung cho cả node_camera VÀ
+ *  node_root, để header này KHÔNG gọi thẳng Serial.println/printf.
+ *
+ *  Lý do: node_root.ino (sau khi thêm UART_PROTOCOL.md) đóng khung
+ *  TOÀN BỘ output qua Serial ở baud 921600 cho middleware — nếu
+ *  header này in text thô như bản cũ, sẽ làm hỏng luồng nhị phân
+ *  giữa các khung ảnh JPEG. node_camera.ino thì không cần framing
+ *  (chỉ debug qua Serial Monitor thường), nên mỗi .ino tự định nghĩa
+ *  hàm này theo đúng nhu cầu của nó — chỉ CẦN 1 định nghĩa duy nhất
+ *  trong sketch đang biên dịch (không có -> lỗi linker "undefined
+ *  reference to chunk_log", nhắc bạn thêm vào .ino đang thiếu):
+ *
+ *    // node_camera.ino (giữ nguyên debug thô, không cần framing)
+ *    void chunk_log(const char* msg) { Serial.println(msg); }
+ *
+ *    // node_root.ino (đã có sẵn, gọi log_frame_str() -> khung LOG)
+ *    void chunk_log(const char* msg) { log_frame_str(msg); }
+ * ──────────────────────────────────────────────────────────── */
+extern void chunk_log(const char* msg);
+
+/* ────────────────────────────────────────────────────────────
  *  CẤU TRÚC CHUNK HEADER — 12 bytes, packed
  *
  *  Cấu trúc này được đặt NGAY TRƯỚC payload trong mỗi packet
@@ -177,7 +198,7 @@ static String serialize_chunk(const ChunkHeader& header, const uint8_t* payload)
     size_t b64_len = base64_encode(raw_buffer, raw_len, b64_buffer, sizeof(b64_buffer));
 
     if (b64_len == 0) {
-        Serial.println("[CHUNK] Base64 encode failed!");
+        chunk_log("[CHUNK] Base64 encode failed!");
         return String("");
     }
 
@@ -224,7 +245,7 @@ static bool deserialize_chunk(const String& encoded,
     size_t encoded_len = encoded.length();
     if (encoded_len < 16) {
         // Base64 của 12 bytes header ≥ 16 ký tự → message quá ngắn
-        Serial.println("[CHUNK] Message too short!");
+        chunk_log("[CHUNK] Message too short!");
         return false;
     }
 
@@ -235,7 +256,9 @@ static bool deserialize_chunk(const String& encoded,
     );
 
     if (decoded_len < CHUNK_HEADER_SIZE) {
-        Serial.printf("[CHUNK] Decode failed or too short: %d bytes\n", decoded_len);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "[CHUNK] Decode failed or too short: %d bytes", (int)decoded_len);
+        chunk_log(msg);
         return false;
     }
 
@@ -252,15 +275,19 @@ static bool deserialize_chunk(const String& encoded,
      * từ dữ liệu không hợp lệ hoặc bị corrupt trên đường truyền.
      */
     if (header.payload_len > MAX_CHUNK_PAYLOAD) {
-        Serial.printf("[CHUNK] Invalid payload_len: %d\n", header.payload_len);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "[CHUNK] Invalid payload_len: %d", header.payload_len);
+        chunk_log(msg);
         return false;
     }
 
     /* Xác minh kích thước decoded khớp với header */
     size_t expected_len = CHUNK_HEADER_SIZE + header.payload_len;
     if (decoded_len < expected_len) {
-        Serial.printf("[CHUNK] Size mismatch: decoded=%d, expected=%d\n",
-                      decoded_len, expected_len);
+        char msg[80];
+        snprintf(msg, sizeof(msg), "[CHUNK] Size mismatch: decoded=%d, expected=%d",
+                 (int)decoded_len, (int)expected_len);
+        chunk_log(msg);
         return false;
     }
 
@@ -270,8 +297,10 @@ static bool deserialize_chunk(const String& encoded,
      * Copy vào buffer do caller cung cấp.
      */
     if (header.payload_len > payload_buf_sz) {
-        Serial.printf("[CHUNK] Payload buffer too small: %d > %d\n",
-                      header.payload_len, payload_buf_sz);
+        char msg[80];
+        snprintf(msg, sizeof(msg), "[CHUNK] Payload buffer too small: %d > %d",
+                 header.payload_len, (int)payload_buf_sz);
+        chunk_log(msg);
         return false;
     }
 

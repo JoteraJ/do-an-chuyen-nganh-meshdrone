@@ -56,6 +56,10 @@ typedef struct {
     uint16_t total_chunks;
     uint16_t received_count;
     uint32_t jpeg_total_len;
+    uint32_t capture_ts_ms;  // header.capture_ts_ms cua chunk dau tien nhan duoc
+                             // (giong nhau cho ca frame) -> dung de tinh latency
+                             // end-to-end khi frame HOAN THANH. Xem han che dong
+                             // bo dong ho trong chunk_common/include/chunk_protocol.h.
     bool     chunk_received[MAX_CHUNKS_PER_FRAME];
     uint8_t *jpeg_buffer;    // Tro toi vung PSRAM cap phat 1 lan trong app_main()
                              // (giong ps_malloc() cua ban Arduino cu). 4 slot x 64KB = 256KB,
@@ -140,6 +144,10 @@ static void handle_incoming_packet(const uint8_t *raw, size_t raw_len) {
     }
     frame_assembly_t *fa = &s_assemblies[slot];
 
+    // Moi chunk cung frame mang cung 1 gia tri capture_ts_ms (dat o Camera Node
+    // luc bat dau chup) -> gan lai o day an toan du chunk nao den truoc.
+    fa->capture_ts_ms = header.capture_ts_ms;
+
     if (fa->chunk_received[header.chunk_index]) {
         return;  // Duplicate, bo qua
     }
@@ -158,8 +166,11 @@ static void handle_incoming_packet(const uint8_t *raw, size_t raw_len) {
     if (chunk_end > fa->jpeg_total_len) fa->jpeg_total_len = (uint32_t)chunk_end;
 
     if (fa->received_count >= fa->total_chunks) {
-        ESP_LOGI(TAG, "[ASM] HOAN THANH! node=%u frame=%d size=%u chunks=%d",
-                 (unsigned)fa->node_id, fa->frame_id, (unsigned)fa->jpeg_total_len, fa->total_chunks);
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        int32_t latency_ms = (int32_t)(now_ms - fa->capture_ts_ms);
+        ESP_LOGI(TAG, "[ASM] HOAN THANH! node=%u frame=%d size=%u chunks=%d latency=%d ms",
+                 (unsigned)fa->node_id, fa->frame_id, (unsigned)fa->jpeg_total_len, fa->total_chunks,
+                 (int)latency_ms);
         // Phase 2: memcpy sang latest_frame buffer + goi HTTP MJPEG o day.
         fa->active = false;
         s_frames_completed++;
@@ -188,6 +199,15 @@ static void cleanup_stale_frames(void) {
  * ================================================================ */
 static int s_mesh_layer = -1;
 static bool s_is_root_locked = false;
+
+/* Self-healing: xem ghi chu tuong tu trong node_root.ino (ban painlessMesh).
+ * O day dung MESH_EVENT_ROUTING_TABLE_REMOVE/ADD thay vi PARENT_CONNECTED/
+ * DISCONNECTED, vi Root khong co "parent" trong cay mesh (no la goc) — cac
+ * event PARENT_* chi phan anh ket noi cua Root LEN ROUTER ngoai, khong phan
+ * anh mot node con giua duong bi rot. ROUTING_TABLE_REMOVE/ADD phan anh dung
+ * hon: bang dinh tuyen cua Root thay doi khi co node roi/vao mang. */
+static uint32_t s_last_disconnect_ms = 0;
+static int32_t  s_last_self_heal_ms  = -1;
 
 static void mesh_event_handler(void *arg, esp_event_base_t base, int32_t id, void *event_data) {
     switch (id) {
@@ -226,6 +246,30 @@ static void mesh_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     case MESH_EVENT_ROOT_ADDRESS:
         ESP_LOGI(TAG, "[MESH] Root address event nhan duoc");
         break;
+    case MESH_EVENT_ROUTING_TABLE_REMOVE: {
+        // LUU Y: ten struct/field (mesh_event_routing_table_change_t,
+        // rt_size_change, rt_size_new) lay theo tai lieu ESP-WIFI-MESH — CHUA
+        // compile-test, ban tu doi chieu voi esp_mesh.h cua ban IDF dang cai
+        // neu build loi o day (xem README_MIGRATION.md muc "checklist debug").
+        mesh_event_routing_table_change_t *rt = (mesh_event_routing_table_change_t *)event_data;
+        s_last_disconnect_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        ESP_LOGW(TAG, "[MESH] ROUTING_TABLE_REMOVE: -%d node, con lai %d — bat dau do self-healing",
+                 rt->rt_size_change, rt->rt_size_new);
+        break;
+    }
+    case MESH_EVENT_ROUTING_TABLE_ADD: {
+        mesh_event_routing_table_change_t *rt = (mesh_event_routing_table_change_t *)event_data;
+        if (s_last_disconnect_ms != 0) {
+            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            s_last_self_heal_ms = (int32_t)(now_ms - s_last_disconnect_ms);
+            ESP_LOGI(TAG, "[MESH] SELF-HEALING: mang khoi phuc sau %d ms (routing table +%d, tong %d)",
+                     (int)s_last_self_heal_ms, rt->rt_size_change, rt->rt_size_new);
+            s_last_disconnect_ms = 0;
+        } else {
+            ESP_LOGI(TAG, "[MESH] ROUTING_TABLE_ADD: +%d node, tong %d", rt->rt_size_change, rt->rt_size_new);
+        }
+        break;
+    }
     default:
         break;
     }
@@ -275,9 +319,10 @@ static void cleanup_task(void *arg) {
 static void stats_task(void *arg) {
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(15000));
-        ESP_LOGI(TAG, "[STAT] Frames OK: %u | Dropped: %u | Chunks: %u | Layer: %d | Free heap: %u",
+        ESP_LOGI(TAG, "[STAT] Frames OK: %u | Dropped: %u | Chunks: %u | Layer: %d | Free heap: %u | Self-heal gan nhat: %d ms",
                  (unsigned)s_frames_completed, (unsigned)s_frames_dropped,
-                 (unsigned)s_chunks_received, s_mesh_layer, (unsigned)esp_get_free_heap_size());
+                 (unsigned)s_chunks_received, s_mesh_layer, (unsigned)esp_get_free_heap_size(),
+                 (int)s_last_self_heal_ms);
     }
 }
 
