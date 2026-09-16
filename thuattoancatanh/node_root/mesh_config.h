@@ -28,7 +28,7 @@
  *  và port để tham gia cùng một topology Mesh.
  * ============================================================ */
 #define MESH_SSID          "ESP32_MESH_VIDEO"     // Tên mạng Mesh nội bộ
-#define MESH_PASSWORD      "MeshVideo2024!"       // Mật khẩu Mesh (ít nhất 8 ký tự)
+#define MESH_PASSWORD      "MeshVideo2026"       // Mật khẩu Mesh (ít nhất 8 ký tự)
 #define MESH_PORT          5555                   // TCP port cho giao tiếp Mesh
 
 /* ============================================================
@@ -41,8 +41,8 @@
  *
  *  >>> THAY ĐỔI SSID VÀ PASSWORD WIFI ROUTER CỦA BẠN TẠI ĐÂY <<<
  * ============================================================ */
-#define STATION_SSID       "YOUR_WIFI_SSID"       // SSID của WiFi router
-#define STATION_PASSWORD   "YOUR_WIFI_PASSWORD"   // Password WiFi router
+#define STATION_SSID       "HFamily_Vmember"       // SSID của WiFi router
+#define STATION_PASSWORD   "091214Mrs.H"   // Password WiFi router
 
 /* ============================================================
  *  3. CẤU HÌNH GIAO THỨC TRUYỀN CHUNK

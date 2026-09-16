@@ -1097,7 +1097,7 @@ void setup() {
     /* ── Khởi tạo painlessMesh ──────────────────────────── */
     DBGLN("\n[MESH] Dang khoi tao painlessMesh (Root mode)...");
 
-    mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
+    mesh.setDebugMsgTypes(ERROR | CONNECTION);  // TAM THOI de xac minh bug #275 tren fork Alteriom — doi lai ERROR sau khi debug xong
     mesh.init(MESH_SSID, MESH_PASSWORD, MESH_PORT);
 
     mesh.onReceive(&receivedCallback);
@@ -1133,7 +1133,16 @@ void setup() {
      * >>> THAY ĐỔI STATION_SSID & STATION_PASSWORD
      * >>> TRONG mesh_config.h <<<
      */
-    mesh.stationManual(STATION_SSID, STATION_PASSWORD);
+    /* [TAM TAT - debug 14/09/2026] Nghi ngo vong lap retry cua stationManual()
+     * ("scan could not start, retrying in 15 s") dang gianh dung chung radio
+     * WiFi voi mesh AP/channel cua Root, khien Leaf tim thay Root roi lai rot
+     * ("Found 1 nodes" -> "Found 0 nodes" lap lai). Comment tam de cach ly:
+     * neu Leaf giu ket noi on dinh khi khong co dong nay, day la root cause
+     * that su (khac bug #275 da sua o fork Alteriom).
+     * BAT LAI: bo comment dong duoi day (chi can WiFi router that su can thiet
+     * cho tinh nang xem HTTP MJPEG qua trinh duyet, khong anh huong 3 tieu chi
+     * cham diem qua mesh noi bo). */
+    // mesh.stationManual(STATION_SSID, STATION_PASSWORD);
 
     DBGF("[MESH] Root Node ID: %u\n", mesh.getNodeId());
     DBGF("[MESH] Mesh SSID: %s\n", MESH_SSID);

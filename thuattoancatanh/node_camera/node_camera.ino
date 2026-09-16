@@ -514,7 +514,7 @@ void setup() {
      */
     Serial.println("\n[MESH] Dang khoi tao painlessMesh...");
 
-    mesh.setDebugMsgTypes(ERROR | STARTUP);
+    mesh.setDebugMsgTypes(ERROR | CONNECTION);  // TAM THOI de xac minh bug #275 tren fork Alteriom — doi lai ERROR sau khi debug xong
     mesh.init(MESH_SSID, MESH_PASSWORD, MESH_PORT);
 
     mesh.onReceive(&receivedCallback);
