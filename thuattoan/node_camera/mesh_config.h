@@ -63,22 +63,19 @@
 /* ============================================================
  *  4. CẤU HÌNH REASSEMBLY — GHÉP ẢNH TẠI ROOT NODE
  *
- *  Root cần quản lý nhiều frame đang ghép đồng thời (từ nhiều
- *  camera node hoặc frame mới chồng lên frame cũ).
+ *  Camera Node (Leaf) không tự ghép ảnh, nhưng cần các hằng số
+ *  này khớp với Root để: (a) tự bỏ frame chụp được nếu > MAX_FRAME_SIZE
+ *  trước khi gửi (xem capture_and_send()), tránh Root phải từ chối
+ *  từng chunk; (b) REASSEMBLY_TIMEOUT_MS chỉ Root dùng nhưng vẫn
+ *  đặt giống nhau để dễ đối chiếu cấu hình giữa 2 node.
  *
- *  REASSEMBLY_TIMEOUT_MS: Nếu sau khoảng thời gian này mà
- *  frame chưa nhận đủ chunk → hủy frame, giải phóng slot.
- *
- *  MAX_CONCURRENT_FRAMES: Số slot ghép đồng thời. Mỗi slot
- *  chiếm MAX_FRAME_SIZE byte PSRAM. Với 4 slot × 64KB = 256KB.
- *
- *  MAX_FRAME_SIZE: Kích thước tối đa một ảnh JPEG. QVGA quality
- *  12 thường cho ảnh 8-15KB, nhưng đặt 64KB để dự phòng.
+ *  MAX_CONCURRENT_FRAMES ở Leaf không được dùng (Leaf không có
+ *  khái niệm slot ghép), giữ nguyên giá trị tùy ý.
  * ============================================================ */
-#define REASSEMBLY_TIMEOUT_MS   5000    // Timeout hủy frame không hoàn chỉnh (ms)
-#define MAX_CONCURRENT_FRAMES   4       // Số frame đang ghép đồng thời tối đa
-#define MAX_FRAME_SIZE          65536   // Kích thước tối đa một frame JPEG (bytes)
-#define MAX_CHUNKS_PER_FRAME    64      // MAX_FRAME_SIZE / MAX_CHUNK_PAYLOAD
+#define REASSEMBLY_TIMEOUT_MS   2000    // Timeout hủy frame không hoàn chỉnh (ms) — khớp Root
+#define MAX_CONCURRENT_FRAMES   4       // Không dùng ở Leaf, giữ để tham khảo
+#define MAX_FRAME_SIZE          24576   // Kích thước tối đa một frame JPEG (bytes) = 24KB — khớp Root
+#define MAX_CHUNKS_PER_FRAME    24      // MAX_FRAME_SIZE / MAX_CHUNK_PAYLOAD — khớp Root
 
 /* ============================================================
  *  5. CẤU HÌNH CAMERA OV3660
@@ -169,5 +166,20 @@
  * ============================================================ */
 #define PC_UART_BAUD               921600
 #define TELEMETRY_SEND_INTERVAL_MS 2000    // Chu kỳ gửi khung TELEMETRY
+
+/* ============================================================
+ *  9. BEACON ROOT — Leaf tự học Root ID để dùng sendSingle()
+ *
+ *  Root phát định kỳ một message ngắn bắt đầu bằng
+ *  ROOT_BEACON_PREFIX. Leaf lắng nghe, gán root_id = from khi
+ *  thấy message này, rồi gửi chunk thẳng tới Root bằng
+ *  sendSingle() thay vì sendBroadcast() tới toàn mạng.
+ *
+ *  '#' không thuộc bảng mã Base64 nên không thể nhầm với một
+ *  chunk hợp lệ (mọi chunk đều là chuỗi Base64 thuần).
+ * ============================================================ */
+#define ROOT_BEACON_PREFIX        "#ROOT"   // '#' khong thuoc bang ma Base64 -> khong nham voi chunk
+#define ROOT_BEACON_INTERVAL_MS   2000
+#define ROOT_NODE_ID_OVERRIDE     0         // 0 = tu hoc qua beacon; khac 0 = ep dung ID nay
 
 #endif // MESH_CONFIG_H

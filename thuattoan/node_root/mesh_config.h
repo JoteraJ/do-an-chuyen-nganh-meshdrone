@@ -68,22 +68,30 @@
  *
  *  REASSEMBLY_TIMEOUT_MS: Nếu sau khoảng thời gian này mà
  *  frame chưa nhận đủ chunk → hủy frame, giải phóng slot.
+ *  Giảm 5000 → 2000: 1 frame gửi xong trong ~0,5s, chờ 5s chỉ
+ *  làm giữ slot vô ích khi có nhiều Leaf tranh chấp slot.
  *
  *  MAX_CONCURRENT_FRAMES: Số slot ghép đồng thời. Mỗi slot
- *  chiếm MAX_FRAME_SIZE byte SRAM/PSRAM.
+ *  chiếm MAX_FRAME_SIZE byte SRAM (Root KHÔNG có PSRAM).
  *
- *  [ĐÃ ĐỔI] Giảm từ 4 → 1 để vừa SRAM nội bộ ESP32 (~100-150KB
- *  khả dụng sau khi WiFi/Mesh stack đã chiếm phần lớn). Chỉ cần
- *  1 slot vì hiện chỉ có 1 Camera node. Tăng lại khi có nhiều node
- *  và board CÓ PSRAM (ESP32-CAM, ESP32-WROVER).
+ *  [ĐÃ ĐỔI] 4 slot × 24KB = 96KB, vừa SRAM nội bộ ESP32-WROOM-32D
+ *  (~120KB khả dụng sau khi WiFi/Mesh stack đã chiếm phần lớn).
+ *  Số slot phải ≥ số Leaf gửi đồng thời + 1 (cho frame chồng lấn),
+ *  nếu không chunk của Leaf này sẽ hất frame đang ghép dở của Leaf
+ *  kia ra ngoài (eviction chéo, drop rate cao). 4 slot đủ cho 3 Leaf.
  *
  *  MAX_FRAME_SIZE: Kích thước tối đa một ảnh JPEG. QVGA quality
- *  12 thường cho ảnh 8-15KB, nhưng đặt 64KB để dự phòng.
+ *  12 thực tế cho ảnh ~8-15KB, đặt 24KB để dự phòng vừa đủ mà
+ *  không tốn SRAM (board không PSRAM).
  * ============================================================ */
-#define REASSEMBLY_TIMEOUT_MS   5000    // Timeout hủy frame không hoàn chỉnh (ms)
-#define MAX_CONCURRENT_FRAMES   1       // [ĐÃ ĐỔI] 4→1 để vừa SRAM nội bộ (xem ghi chú trên)
-#define MAX_FRAME_SIZE          65536   // Kích thước tối đa một frame JPEG (bytes)
-#define MAX_CHUNKS_PER_FRAME    64      // MAX_FRAME_SIZE / MAX_CHUNK_PAYLOAD
+#define REASSEMBLY_TIMEOUT_MS   2000    // Timeout hủy frame không hoàn chỉnh (ms)
+#define MAX_CONCURRENT_FRAMES   4       // Số frame đang ghép đồng thời tối đa
+#define MAX_FRAME_SIZE          24576   // Kích thước tối đa một frame JPEG (bytes) = 24KB
+#define MAX_CHUNKS_PER_FRAME    24      // MAX_FRAME_SIZE / MAX_CHUNK_PAYLOAD
+
+#if (MAX_CHUNKS_PER_FRAME * MAX_CHUNK_PAYLOAD) < MAX_FRAME_SIZE
+#error "MAX_CHUNKS_PER_FRAME qua nho so voi MAX_FRAME_SIZE"
+#endif
 
 /* ============================================================
  *  5. CẤU HÌNH CAMERA OV3660
@@ -174,5 +182,20 @@
  * ============================================================ */
 #define PC_UART_BAUD               921600
 #define TELEMETRY_SEND_INTERVAL_MS 2000    // Chu kỳ gửi khung TELEMETRY
+
+/* ============================================================
+ *  9. BEACON ROOT — Leaf tự học Root ID để dùng sendSingle()
+ *
+ *  Root phát định kỳ một message ngắn bắt đầu bằng
+ *  ROOT_BEACON_PREFIX. Leaf lắng nghe, gán root_id = from khi
+ *  thấy message này, rồi gửi chunk thẳng tới Root bằng
+ *  sendSingle() thay vì sendBroadcast() tới toàn mạng.
+ *
+ *  '#' không thuộc bảng mã Base64 nên không thể nhầm với một
+ *  chunk hợp lệ (mọi chunk đều là chuỗi Base64 thuần).
+ * ============================================================ */
+#define ROOT_BEACON_PREFIX        "#ROOT"   // '#' khong thuoc bang ma Base64 -> khong nham voi chunk
+#define ROOT_BEACON_INTERVAL_MS   2000
+#define ROOT_NODE_ID_OVERRIDE     0         // 0 = tu hoc qua beacon; khac 0 = ep dung ID nay
 
 #endif // MESH_CONFIG_H

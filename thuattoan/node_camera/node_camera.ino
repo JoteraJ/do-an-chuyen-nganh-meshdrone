@@ -9,7 +9,9 @@
  *  2. Kết nối vào mạng painlessMesh
  *  3. Định kỳ chụp ảnh JPEG → cắt thành các chunk 1024 byte
  *  4. Đóng gói mỗi chunk với Header 12 byte → encode Base64
- *  5. Gửi từng chunk qua Mesh broadcast về hướng Root Node
+ *  5. Gửi từng chunk thẳng tới Root qua sendSingle() (học root_id
+ *     qua beacon "#ROOT..." Root phát định kỳ); sendBroadcast() chỉ
+ *     dùng làm fallback khi chưa biết root_id
  *
  *  Phần cứng yêu cầu:
  *  ──────────────────
@@ -48,6 +50,9 @@
 #include "base64_util.h"
 #include "chunk_protocol.h"
 
+// 1 = in log moi frame chup/gui (debug), 0 = tat khi do dac hieu nang
+#define DEBUG_CAM_VERBOSE 0
+
 /* chunk_log() — hook mà chunk_protocol.h gọi khi có lỗi encode/decode
  * chunk (xem khai báo extern trong chunk_protocol.h). node_camera KHÔNG
  * đóng khung UART cho middleware (chỉ Root mới làm việc đó), nên ở đây
@@ -71,6 +76,14 @@ uint32_t last_capture_time = 0;     // millis() của lần chụp cuối cùng
 
 uint32_t frames_sent = 0;           // Tổng số frame đã gửi (thống kê)
 uint32_t chunks_sent = 0;           // Tổng số chunk đã gửi (thống kê)
+uint32_t chunks_send_fail = 0;      // Tổng số chunk gửi thất bại (thống kê)
+
+/* root_id: Node ID của Root, học qua beacon ROOT_BEACON_PREFIX do Root
+ * phát định kỳ (xem receivedCallback()). 0 = chưa biết → dùng
+ * sendBroadcast() làm fallback trong capture_and_send(). Nếu
+ * ROOT_NODE_ID_OVERRIDE khác 0 trong mesh_config.h, ép dùng ID đó và
+ * không tự học qua beacon nữa. */
+uint32_t root_id = ROOT_NODE_ID_OVERRIDE;
 
 /* ================================================================
  *  KHỞI TẠO CAMERA OV3660
@@ -217,6 +230,18 @@ bool init_camera() {
  *  - Chỉ có Arduino String tạm thời bị cấp phát trên heap
  * ================================================================ */
 void capture_and_send() {
+    /* ── Bước 0: Chưa biết Root và đang một mình trong mesh ──
+     *
+     * root_id == 0 nghĩa là chưa nhận được beacon nào từ Root.
+     * Nếu đồng thời mesh.getNodeList() rỗng (không có node nào khác),
+     * chụp ảnh lúc này chỉ để rồi không gửi được đi đâu — bỏ qua
+     * SỚM, TRƯỚC esp_camera_fb_get(), để không giữ frame buffer
+     * camera vô ích (chỉ có CAM_FB_COUNT=1 buffer).
+     */
+    if (root_id == 0 && mesh.getNodeList().size() == 0) {
+        return;
+    }
+
     /* ── Bước 1: Chụp ảnh JPEG ──────────────────────────────
      *
      * esp_camera_fb_get() block cho đến khi sensor hoàn thành
@@ -257,7 +282,9 @@ void capture_and_send() {
         return;
     }
 
+#if DEBUG_CAM_VERBOSE
     Serial.printf("[CAM] Frame #%d: %d bytes\n", frame_id_counter, fb->len);
+#endif
 
     /* ── Bước 3: Tính số chunk cần thiết ────────────────────
      *
@@ -341,17 +368,21 @@ void capture_and_send() {
 
         /* e) Gửi qua Mesh Network
          *
-         * sendBroadcast(): Gửi tới TẤT CẢ node trong mạng Mesh.
-         * Root Node sẽ nhận và xử lý, các Camera Node khác sẽ
-         * bỏ qua (vì không có reassembly logic).
+         * sendSingle(root_id, encoded): Gửi thẳng tới Root — root_id
+         * học được qua beacon ROOT_BEACON_PREFIX (xem receivedCallback()).
+         * Tránh việc mọi chunk (broadcast) bị các Leaf khác cũng nhận,
+         * cấp phát String rồi bỏ, nhân traffic không khí lên vô ích khi
+         * có nhiều Leaf.
          *
-         * Tối ưu: Nếu biết Root Node ID, dùng mesh.sendSingle(rootId, encoded)
-         * để gửi trực tiếp, giảm traffic không cần thiết.
-         * Xem README.md để biết cách cấu hình sendSingle.
+         * sendBroadcast(): CHỈ dùng làm fallback khi chưa học được
+         * root_id (root_id == 0) — ví dụ vài giây đầu sau khi vào mesh,
+         * trước khi nhận được beacon đầu tiên từ Root.
          */
-        bool sent_ok = mesh.sendBroadcast(encoded);
+        bool sent_ok = (root_id != 0) ? mesh.sendSingle(root_id, encoded)
+                                       : mesh.sendBroadcast(encoded);
 
         if (!sent_ok) {
+            chunks_send_fail++;
             Serial.printf("[CAM] Gui chunk %d/%d THAT BAI!\n",
                           i + 1, total_chunks);
         }
@@ -382,8 +413,10 @@ void capture_and_send() {
         }
     }
 
+#if DEBUG_CAM_VERBOSE
     Serial.printf("[CAM] Frame #%d: da gui %d chunks\n",
                   frame_id_counter, total_chunks);
+#endif
 
     /* ── Bước 5: Giải phóng frame buffer ────────────────────
      *
@@ -415,12 +448,20 @@ void capture_and_send() {
 
 /**
  * Được gọi khi nhận message từ node khác trong Mesh.
- * Camera Node không cần xử lý (chỉ Root mới reassemble).
+ * Camera Node không xử lý chunk ảnh (chỉ Root mới reassemble),
+ * nhưng lắng nghe riêng beacon Root để học root_id.
  */
 void receivedCallback(uint32_t from, String &msg) {
-    // Bỏ qua — Camera Node không xử lý message nhận được
-    // Trong mạng có nhiều Camera, broadcast từ camera khác sẽ
-    // đến đây nhưng không cần thiết phải xử lý.
+    if (msg.startsWith(ROOT_BEACON_PREFIX)) {
+        if (ROOT_NODE_ID_OVERRIDE == 0 && root_id != from) {
+            root_id = from;
+            Serial.printf("[MESH] Root ID = %u\n", root_id);
+        }
+        return;
+    }
+    // Bỏ qua — Camera Node không xử lý message nhận được khác
+    // Trong mạng có nhiều Camera, broadcast từ camera khác (fallback
+    // khi chưa biết root_id) sẽ đến đây nhưng không cần xử lý.
 }
 
 /**
@@ -441,6 +482,18 @@ void changedConnectionCallback() {
     Serial.printf("[MESH] Tong so node: %d\n", nodes.size());
     for (auto &id : nodes) {
         Serial.printf("  - Node: %u\n", id);
+    }
+
+    // Root vua roi khoi mesh (vd rut nguon) — quen root_id da hoc,
+    // se hoc lai qua beacon khi Root (hoac Root khac) xuat hien lai.
+    if (root_id != 0) {
+        bool root_still_present = false;
+        for (auto &id : nodes) {
+            if (id == root_id) { root_still_present = true; break; }
+        }
+        if (!root_still_present) {
+            root_id = ROOT_NODE_ID_OVERRIDE;
+        }
     }
 }
 
@@ -514,7 +567,10 @@ void setup() {
      */
     Serial.println("\n[MESH] Dang khoi tao painlessMesh...");
 
-    mesh.setDebugMsgTypes(ERROR | CONNECTION);  // TAM THOI de xac minh bug #275 tren fork Alteriom — doi lai ERROR sau khi debug xong
+    // painlessMesh in log nay thang ra Serial Monitor cua Leaf (khong
+    // qua khung UART nhi phan nhu Root, nhung van giam nhieu khi debug).
+    // Muc ERROR hiem khi in nen chap nhan duoc.
+    mesh.setDebugMsgTypes(ERROR);
     mesh.init(MESH_SSID, MESH_PASSWORD, MESH_PORT);
 
     mesh.onReceive(&receivedCallback);
@@ -563,9 +619,9 @@ void loop() {
 
         /* In thống kê định kỳ (mỗi 10 frame) */
         if (frames_sent > 0 && frames_sent % 10 == 0) {
-            Serial.printf("[STAT] Frames: %d, Chunks: %d, Heap: %d, PSRAM: %d\n",
-                          frames_sent, chunks_sent,
-                          ESP.getFreeHeap(), ESP.getFreePsram());
+            Serial.printf("[STAT] Frames: %d, Chunks: %d, ChunksFail: %d, Heap: %d, PSRAM: %d, RootID: %u\n",
+                          frames_sent, chunks_sent, chunks_send_fail,
+                          ESP.getFreeHeap(), ESP.getFreePsram(), root_id);
         }
     }
 }

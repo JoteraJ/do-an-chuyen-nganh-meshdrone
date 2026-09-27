@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SmartNetworkX Dashboard</title>
+  <title>Dashboard Mesh Drone</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
   <script src="https://cdn.tailwindcss.com"></script>
 
@@ -15,53 +19,177 @@
   <script src="/socket.io/socket.io.js"></script>
 
   <style>
-    /* Custom scrollbar for terminal logs */
-    ::-webkit-scrollbar {
-      width: 6px;
+    :root {
+      /* Nền & độ cao (elevation) */
+      --bg:          #121212;
+      --surface-1:   #1E1E1E;   /* panel / card */
+      --surface-2:   #252525;   /* phần tử lồng trong card: hàng dữ liệu, ô ảnh */
+      --surface-3:   #2E2E2E;   /* hover */
+      --track:       rgba(255, 255, 255, 0.07);
+      --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 4px 12px rgba(0, 0, 0, .25);
+      --radius:      8px;
+
+      /* Màu nhấn & chữ */
+      --accent:      #22D3EE;
+      --accent-soft: rgba(34, 211, 238, .14);
+      --text:        #E4E4E7;
+      --text-2:      #A1A1AA;
+      --text-3:      #71717A;
+      --grid:        rgba(255, 255, 255, 0.06);   /* lưới biểu đồ mờ trên nền #1E1E1E */
+
+      /* Trạng thái */
+      --good:        #22C55E;
+      --warning:     #FACC15;
+      --critical:    #EF4444;
+
+      /* Màu nhóm 1/2/3 leaf (biểu đồ so sánh) */
+      --leaf-1:      #3987e5;
+      --leaf-2:      #d95926;
+      --leaf-3:      #199e70;
+
+      --panel:       var(--surface-1);
+      --panel-2:     var(--surface-2);
+      --font-mono:   'JetBrains Mono', 'Fira Code', ui-monospace, Consolas, monospace;
+      color-scheme: dark;
     }
-    ::-webkit-scrollbar-track {
-      background: #0f172a;
+    html, body { background: var(--bg); color: var(--text); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+
+    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .panel { background: var(--surface-1); border: 1px solid rgba(255, 255, 255, .05); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .nested { background: var(--surface-2); border-radius: 6px; }
+    .panel-h { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+    .label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #9CA3AF; }
+
+    /* Nút & nhóm nút chọn */
+    .btn { background: var(--surface-2); color: #D4D4D8; border-radius: 6px; padding: 6px 12px; font-size: 12px; transition: background .15s, color .15s; }
+    .btn:hover { background: var(--surface-3); color: #fff; }
+    .btn:disabled { opacity: .4; pointer-events: none; }
+    .seg { display: inline-flex; gap: 2px; background: var(--surface-2); padding: 3px; border-radius: 8px; }
+    .seg button { font-size: 12px; padding: 4px 12px; border-radius: 6px; color: var(--text-2); transition: background .15s, color .15s; white-space: nowrap; }
+    .seg button:hover { color: var(--text); }
+    .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
+    /* Tab so sánh: nhóm nút liền nhau, chip, chấm ghi, icon thông tin */
+    .btn-group { display: inline-flex; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255, 255, 255, .06); }
+    .btn-group .btn { border-radius: 0; }
+    .btn-group .btn + .btn { border-left: 1px solid rgba(255, 255, 255, .06); }
+    .chip { display: inline-flex; align-items: center; gap: 6px; border-width: 1px; border-style: solid; border-radius: 9999px;
+            background: transparent; padding: 3px 10px; font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums;
+            transition: border-color .15s, color .15s; }
+    .rec-dot { width: 8px; height: 8px; border-radius: 9999px; flex-shrink: 0; background: #52525B; }
+    .rec-dot.rec-on { background: var(--critical); animation: recPulse 1.4s ease-out infinite; }
+    @keyframes recPulse {
+      0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, .6); }
+      70%  { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
     }
-    ::-webkit-scrollbar-thumb {
-      background: #334155;
-      border-radius: 4px;
+    .info-btn { width: 16px; height: 16px; border-radius: 9999px; border: 1px solid rgba(255, 255, 255, .25); color: var(--text-2);
+                font: italic 600 10px/14px Georgia, serif; text-align: center; transition: color .15s, border-color .15s; }
+    .info-btn:hover, .info-btn[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+    .info-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .bar { transition: d .22s ease, opacity .15s ease; }
+    .fade-in { animation: fadeIn .15s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    /* Chấm trạng thái phát sáng */
+    .dot { width: 7px; height: 7px; border-radius: 9999px; flex-shrink: 0; }
+    .dot-ok    { background: var(--good);     box-shadow: 0 0 6px rgba(34, 197, 94, .7); animation: dotPulse 2s ease-in-out infinite; }
+    .dot-bad   { background: var(--critical); box-shadow: 0 0 6px rgba(239, 68, 68, .55); }
+    .dot-stale { background: var(--warning);  box-shadow: 0 0 6px rgba(250, 204, 21, .5); }
+    .dot-idle  { background: #52525B; }
+    @keyframes dotPulse {
+      0%, 100% { box-shadow: 0 0 3px rgba(34, 197, 94, .5); }
+      50%      { box-shadow: 0 0 10px rgba(34, 197, 94, .95); }
     }
-    ::-webkit-scrollbar-thumb:hover {
-      background: #475569;
+
+    /* Empty state: lưới toạ độ + drone line-art */
+    .grid-bg {
+      background-color: var(--surface-2);
+      background-image:
+        linear-gradient(rgba(34, 211, 238, .055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34, 211, 238, .055) 1px, transparent 1px);
+      background-size: 28px 28px;
+      background-position: center center;
     }
+    .scanline {
+      position: absolute; left: 0; right: 0; height: 1px; top: 0;
+      background: linear-gradient(90deg, transparent, rgba(34, 211, 238, .35), transparent);
+      animation: scanY 5s linear infinite;
+    }
+    @keyframes scanY { from { top: 0%; } to { top: 100%; } }
+    @keyframes breathe { 0%, 100% { opacity: .45; } 50% { opacity: .85; } }
+    .drone-breathe { animation: breathe 3.2s ease-in-out infinite; }
+    .cone-pulse    { animation: breathe 2.4s ease-in-out infinite; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .dot-ok, .drone-breathe, .cone-pulse, .rec-dot.rec-on, .fade-in { animation: none !important; }
+      .scanline { display: none; }
+      *, *::before, *::after { transition-duration: 0s !important; }
+    }
+
+    [data-tile]:fullscreen { background: #000; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-200 antialiased overflow-x-hidden">
+<body class="antialiased overflow-x-hidden">
 
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect, useRef, useMemo } = React;
 
     /* ================================================================
-     *  GHI CHU QUAN TRONG — bản này đã bỏ toàn bộ dữ liệu giả lập
-     *  (Math.random, setTimeout kịch bản dựng sẵn, placehold.co) của
-     *  bản mockup gốc (tài liệu/smartnetworkx_dashboard.tsx). Toàn bộ
-     *  số liệu ở đây đến từ middleware qua Socket.IO, theo đúng
-     *  UART_PROTOCOL.md. Những gì Root Node CHƯA gửi được (RSSI từng
-     *  liên kết, cây phân cấp đầy đủ ai-là-con-của-ai, throughput/
-     *  latency đo thực) thì dashboard KHÔNG bịa ra — hiển thị rõ
-     *  "chưa có dữ liệu" thay vì số giả, để không gây hiểu nhầm lúc
-     *  demo trước hội đồng.
+     *  Toàn bộ số liệu đến từ middleware qua Socket.IO, đúng
+     *  UART_PROTOCOL.md (sự kiện: connect, disconnect, status,
+     *  telemetry, frame). Không có dữ liệu giả lập: những gì Root Node
+     *  chưa gửi thì hiển thị "chưa có dữ liệu".
+     *
+     *  Tab "So sánh 1/2/3 leaf": mỗi lần nhận telemetry, dashboard tính
+     *  tốc độ thay đổi của các bộ đếm (frames_ok, frames_drop, chunks)
+     *  so với lần telemetry trước, cộng số byte JPEG thực nhận qua sự
+     *  kiện 'frame', rồi xếp mẫu đo vào nhóm theo node_count mà Root
+     *  báo. Số liệu tích luỹ được lưu trong localStorage của trình
+     *  duyệt để có thể đo lần lượt 1 leaf → 2 leaf → 3 leaf rồi so sánh.
      * ================================================================ */
 
-    const IconRoot = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M12 2v20"/><path d="M8 6h8"/><path d="M8 18h8"/></svg>
-    );
+    /* ── Hằng số TỰ ĐIỀN cho thanh tiến trình ────────────────────────
+     * Telemetry chỉ gửi giá trị "free" (heap_free, psram_free), KHÔNG
+     * gửi dung lượng tổng, nên dashboard không tự đoán tổng.
+     *  - null  -> thanh vẽ theo min/max quan sát được trong phiên này,
+     *             có chú thích "theo phiên".
+     *  - số    -> thanh vẽ theo phần trăm thật.
+     * Gợi ý lấy số: in ESP.getHeapSize() / ESP.getPsramSize() trên Root
+     * Node (Arduino) rồi điền byte vào đây; FPS_TARGET là FPS mục tiêu
+     * mà nhóm đặt ra cho luồng ảnh (vd 5).
+     * ---------------------------------------------------------------- */
+    const HEAP_TOTAL_BYTES = null;
+    const PSRAM_TOTAL_BYTES = null;
+    const FPS_TARGET = null;
 
-    const IconNode = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/><circle cx="12" cy="12" r="4"/><path d="m14.8 9.2 2.8-2.8"/><path d="m6.4 17.6 2.8-2.8"/><path d="m6.4 6.4 2.8 2.8"/><path d="m14.8 14.8 2.8 2.8"/></svg>
-    );
+    const HAS_IO = typeof io !== 'undefined';     // false khi mở file:// trực tiếp
+    const LEAVES = [1, 2, 3];
+    const LEAF_COLOR = { 1: 'var(--leaf-1)', 2: 'var(--leaf-2)', 3: 'var(--leaf-3)' };
+    const STORE_KEY = 'meshDashCompare.v1';
+    const TIMELINE_MAX = 900;
+    const STALE_FRAME_MS = 5000;
+    const STALE_TELEMETRY_MS = 6000;
+    const HIST_MAX = 60;
 
-    const IconPlug = ({ ok }) => (
-      <div className={`w-2 h-2 rounded-full ${ok ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-red-500'}`}></div>
-    );
+    const METRICS = [
+      { key: 'fps',        label: 'FPS tổng (Root ghép xong)',     unit: 'fps',     digits: 2 },
+      { key: 'fpsPerNode', label: 'FPS trung bình mỗi leaf',       unit: 'fps',     digits: 2 },
+      { key: 'kbps',       label: 'Thông lượng ảnh tới dashboard', unit: 'KB/s',    digits: 1 },
+      { key: 'dropPct',    label: 'Tỉ lệ frame bị hủy',            unit: '%',       digits: 1 },
+      { key: 'chunksPs',   label: 'Chunk nhận tại Root',           unit: 'chunk/s', digits: 1 },
+      { key: 'frameKB',    label: 'Kích thước frame trung bình',   unit: 'KB',      digits: 1 },
+      { key: 'heapKB',     label: 'Heap trống tại Root',           unit: 'KB',      digits: 0 },
+    ];
+    const HEAL_METRIC = { key: 'heal', label: 'Thời gian self-healing', unit: 'ms', digits: 0 };
 
+    // ── Tiện ích ─────────────────────────────────────────────────
     function timeAgo(ts) {
       if (!ts) return 'chưa có';
       const s = Math.floor((Date.now() - ts) / 1000);
@@ -69,29 +197,725 @@
       if (s < 60) return `${s}s trước`;
       return `${Math.floor(s / 60)}p trước`;
     }
+    const fmt = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d));
+    const kb = (bytes) => (bytes == null ? '—' : `${Math.round(bytes / 1024)} KB`);
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    const dropColor = (p) => (p == null ? 'var(--text-3)' : p < 5 ? 'var(--good)' : p < 15 ? 'var(--warning)' : 'var(--critical)');
+
+    function emptyStats() {
+      const s = {};
+      LEAVES.forEach((l) => { s[l] = { samples: 0, metrics: {}, heal: [] }; });
+      return s;
+    }
+    function loadStore() {
+      try {
+        const raw = localStorage.getItem(STORE_KEY);
+        if (raw) {
+          const d = JSON.parse(raw);
+          if (d && d.stats && Array.isArray(d.timeline) && LEAVES.every((l) => d.stats[l])) return d;
+        }
+      } catch (e) { /* localStorage không khả dụng — bắt đầu rỗng */ }
+      return { stats: emptyStats(), timeline: [] };
+    }
+    function saveStore(d) {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch (e) { /* bỏ qua */ }
+    }
+    function aggAdd(a, v) {
+      if (!a) return { n: 1, sum: v, sumsq: v * v, min: v, max: v };
+      return { n: a.n + 1, sum: a.sum + v, sumsq: a.sumsq + v * v, min: Math.min(a.min, v), max: Math.max(a.max, v) };
+    }
+    const aggMean = (a) => (a && a.n ? a.sum / a.n : null);
+    const aggSd = (a) => {
+      if (!a || a.n < 2) return null;
+      const m = a.sum / a.n;
+      return Math.sqrt(Math.max(0, (a.sumsq - a.n * m * m) / (a.n - 1)));
+    };
+    function aggOf(list) {
+      return list.reduce((a, v) => aggAdd(a, v), null);
+    }
+    function niceMax(v) {
+      if (!(v > 0)) return 1;
+      const p = Math.pow(10, Math.floor(Math.log10(v)));
+      for (const m of [1, 2, 2.5, 5, 10]) if (v <= m * p) return m * p;
+      return 10 * p;
+    }
+    function addSample(store, s) {
+      const b = store.stats[s.leaf];
+      const metrics = { ...b.metrics };
+      METRICS.forEach((m) => { if (Number.isFinite(s[m.key])) metrics[m.key] = aggAdd(metrics[m.key], s[m.key]); });
+      const timeline = [...store.timeline, s];
+      if (timeline.length > TIMELINE_MAX) timeline.splice(0, timeline.length - TIMELINE_MAX);
+      return { stats: { ...store.stats, [s.leaf]: { ...b, samples: b.samples + 1, metrics } }, timeline };
+    }
+    function addHeal(store, leaf, ms) {
+      const b = store.stats[leaf];
+      return { ...store, stats: { ...store.stats, [leaf]: { ...b, heal: [...b.heal, ms] } } };
+    }
+
+    // ── Thành phần giao diện dùng chung ─────────────────────────
+    // state: 'ok' (xanh, pulse) | 'bad' (đỏ) | 'stale' (vàng) | 'idle' (xám)
+    function StatusBadge({ state, label, className = '' }) {
+      const txt = { ok: 'text-emerald-400', bad: 'text-red-400', stale: 'text-yellow-300', idle: 'text-zinc-400' }[state];
+      return (
+        <span className={`inline-flex items-center gap-1.5 mono text-[11px] font-medium px-2 py-0.5 rounded-full bg-black/25 whitespace-nowrap ${txt} ${className}`}>
+          <span className={`dot dot-${state}`}></span>{label}
+        </span>
+      );
+    }
+
+    function Row({ k, v, cls = 'text-zinc-50', badge }) {
+      return (
+        <div className="nested flex justify-between items-center gap-3 px-2.5 py-1.5 min-h-[34px]">
+          <span className="label">{k}</span>
+          {badge ? badge : (
+            <span className={`mono text-right ${v == null ? 'text-[12px] text-zinc-500' : `text-[14px] font-semibold ${cls}`}`}>
+              {v == null ? 'chưa có dữ liệu' : v}
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    function ProgressBar({ frac, color = 'var(--accent)' }) {
+      return (
+        <div className="h-1 w-full rounded-full overflow-hidden" style={{ background: 'var(--track)' }}>
+          {frac != null && Number.isFinite(frac) && (
+            <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${clamp01(frac) * 100}%`, background: color }}></div>
+          )}
+        </div>
+      );
+    }
+
+    // Sparkline chỉ vẽ khi có >= 2 điểm thật
+    function Sparkline({ data, color = 'var(--accent)', w = 96, h = 28 }) {
+      const pts = (data || []).filter((v) => Number.isFinite(v));
+      if (pts.length < 2) {
+        return <div className="text-[10px] text-zinc-500 text-right leading-tight" style={{ width: w }}>chưa đủ<br />dữ liệu</div>;
+      }
+      const min = Math.min(...pts), max = Math.max(...pts);
+      const span = max - min || 1;
+      const x = (i) => 1 + (i / (pts.length - 1)) * (w - 4);
+      const y = (v) => (max === min ? h / 2 : 2 + (1 - (v - min) / span) * (h - 4));
+      const last = pts.length - 1;
+      return (
+        <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0" aria-hidden="true">
+          <polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" opacity=".9"
+                    points={pts.map((v, i) => `${x(i)},${y(v)}`).join(' ')} />
+          <circle cx={x(last)} cy={y(pts[last])} r="2.2" fill={color} />
+        </svg>
+      );
+    }
+
+    function MetricCard({ label, value, unit, valueColor = '#FAFAFA', spark, sparkColor, bar, barColor, note }) {
+      const has = value != null;
+      return (
+        <div className="nested px-3 py-2.5 flex flex-col gap-2">
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <div className="label mb-1">{label}</div>
+              {has ? (
+                <div className="mono text-[20px] leading-6 font-semibold" style={{ color: valueColor }}>
+                  {value}{unit && <span className="text-[12px] font-normal text-zinc-400 ml-1">{unit}</span>}
+                </div>
+              ) : (
+                <div className="text-[12px] leading-6 text-zinc-500">chưa có dữ liệu</div>
+              )}
+            </div>
+            {spark !== undefined && <Sparkline data={spark} color={sparkColor} />}
+          </div>
+          {bar !== undefined && <ProgressBar frac={has ? bar : null} color={barColor} />}
+          {note && <div className="text-[10px] text-zinc-500 -mt-0.5">{note}</div>}
+        </div>
+      );
+    }
+
+    // Drone line-art tự vẽ (4 cánh quạt, thân, camera + vùng quét)
+    function DroneArt({ className = '' }) {
+      const rotors = [[42, 34], [158, 34], [42, 110], [158, 110]];
+      return (
+        <svg viewBox="0 0 200 160" className={className} fill="none" stroke="currentColor" strokeWidth="1.4"
+             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path className="cone-pulse" d="M100 110 L66 158 L134 158 Z" fill="currentColor" fillOpacity=".08" stroke="none" />
+          <g className="drone-breathe">
+            <path d="M80 60 L42 34 M120 60 L158 34 M80 84 L42 110 M120 84 L158 110" />
+            {rotors.map(([cx, cy], i) => (
+              <g key={i}>
+                <circle cx={cx} cy={cy} r="4" />
+                <ellipse cx={cx} cy={cy} rx="26" ry="7" opacity=".55" />
+                <path d={`M${cx - 20} ${cy - 2} L${cx + 20} ${cy + 2}`} opacity=".8" />
+              </g>
+            ))}
+            <rect x="76" y="56" width="48" height="32" rx="10" />
+            <path d="M88 64 H112" opacity=".6" />
+            <circle cx="100" cy="74" r="2" />
+            <path d="M80 88 L72 104 M120 88 L128 104 M64 104 H80 M120 104 H136" opacity=".6" />
+            <path d="M95 88 V94 M105 88 V94" />
+            <rect x="89" y="94" width="22" height="16" rx="4" />
+            <circle cx="100" cy="102" r="4.5" />
+            <circle cx="100" cy="102" r="1.6" />
+          </g>
+        </svg>
+      );
+    }
+
+    function SignalEmpty({ title, subtitle, small = false }) {
+      return (
+        <div className="relative w-full h-full grid-bg overflow-hidden rounded-md flex flex-col items-center justify-center text-center px-3">
+          <div className="scanline"></div>
+          <DroneArt className={small ? 'w-16 h-auto mb-1.5' : 'w-40 sm:w-52 h-auto mb-4'} />
+          <div className={small ? 'text-[12px] font-semibold text-zinc-200' : 'text-[15px] font-semibold text-zinc-100'} style={{ color: small ? undefined : 'var(--text)' }}>
+            {title}
+          </div>
+          {subtitle && <div className={`mt-1 text-zinc-400 max-w-md ${small ? 'text-[10px] mono' : 'text-[12px]'}`}>{subtitle}</div>}
+        </div>
+      );
+    }
+
+    // Độ rộng thật của phần tử (px) — để biểu đồ đường vẽ đúng pixel, chữ không bị phóng to
+    function useWidth(ref) {
+      const [w, setW] = useState(0);
+      useEffect(() => {
+        const el = ref.current;
+        if (!el || typeof ResizeObserver === 'undefined') { if (el) setW(el.clientWidth); return; }
+        const ro = new ResizeObserver((entries) => setW(Math.round(entries[0].contentRect.width)));
+        ro.observe(el);
+        return () => ro.disconnect();
+      }, []);
+      return w;
+    }
+
+    // Nội suy monotone cubic (tương đương d3 curveMonotoneX): tiếp tuyến bị chặn nên
+    // đường cong không vượt ra ngoài khoảng giữa hai điểm liền kề (không sinh FPS âm).
+    function monotonePath(p) {
+      const n = p.length;
+      const s = [];
+      for (let i = 0; i < n - 1; i++) {
+        const h = p[i + 1].x - p[i].x;
+        s.push(h ? (p[i + 1].y - p[i].y) / h : 0);
+      }
+      const m = new Array(n);
+      m[0] = s[0];
+      m[n - 1] = s[n - 2];
+      for (let i = 1; i < n - 1; i++) {
+        const s0 = s[i - 1], s1 = s[i];
+        if (s0 * s1 <= 0) { m[i] = 0; continue; }
+        const h0 = p[i].x - p[i - 1].x, h1 = p[i + 1].x - p[i].x;
+        const pm = (s0 * h1 + s1 * h0) / (h0 + h1);
+        m[i] = 2 * Math.sign(s0) * Math.min(Math.abs(s0), Math.abs(s1), 0.5 * Math.abs(pm));
+      }
+      let d = `M${p[0].x},${p[0].y}`;
+      for (let i = 0; i < n - 1; i++) {
+        const dx = (p[i + 1].x - p[i].x) / 3;
+        d += ` C${p[i].x + dx},${p[i].y + dx * m[i]} ${p[i + 1].x - dx},${p[i + 1].y - dx * m[i + 1]} ${p[i + 1].x},${p[i + 1].y}`;
+      }
+      return d;
+    }
+
+    // Icon "i" có tooltip: mở khi hover (chuột), khi click/chạm, khi focus bằng bàn phím;
+    // đóng khi click ra ngoài hoặc nhấn Esc.
+    function InfoTip({ label, children }) {
+      const [hover, setHover] = useState(false);
+      const [pinned, setPinned] = useState(false);
+      const wrapRef = useRef(null);
+      const open = hover || pinned;
+      useEffect(() => {
+        if (!open) return;
+        const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) { setPinned(false); setHover(false); } };
+        const onKey = (e) => { if (e.key === 'Escape') { setPinned(false); setHover(false); } };
+        document.addEventListener('pointerdown', onDown);
+        document.addEventListener('keydown', onKey);
+        return () => {
+          document.removeEventListener('pointerdown', onDown);
+          document.removeEventListener('keydown', onKey);
+        };
+      }, [open]);
+      return (
+        <span ref={wrapRef} className="relative inline-flex"
+              onPointerEnter={(e) => { if (e.pointerType === 'mouse') setHover(true); }}
+              onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHover(false); }}>
+          <button type="button" aria-label={label} aria-expanded={open} aria-describedby={open ? 'info-tip' : undefined}
+                  onClick={() => setPinned((v) => !v)}
+                  onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) setPinned(true); }}
+                  onBlur={() => setPinned(false)}
+                  className="info-btn">i</button>
+          {open && (
+            <div id="info-tip" role="tooltip"
+                 className="fade-in absolute left-0 top-full mt-2 z-30 w-[min(30rem,calc(100vw-2.5rem))] rounded-lg border border-white/10 px-3 py-2.5 text-[12px] leading-5 text-zinc-300 normal-case tracking-normal font-normal"
+                 style={{ background: 'var(--panel-2)', boxShadow: '0 8px 24px rgba(0,0,0,.5)' }}>
+              {children}
+            </div>
+          )}
+        </span>
+      );
+    }
+
+    // ── Biểu đồ cột: so sánh 1 / 2 / 3 leaf cho một thông số ─────
+    function BarCompare({ metric, aggs, nLabel = 'mẫu' }) {
+      const [hover, setHover] = useState(null);
+      const W = 320, H = 200, padL = 44, padR = 8, padT = 22, padB = 30;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const rows = LEAVES.map((l) => ({ leaf: l, a: aggs[l] }));
+      const hasAny = rows.some((r) => r.a && r.a.n);
+      const yMax = niceMax(Math.max(0, ...rows.filter((r) => r.a && r.a.n).map((r) => r.a.max)));
+      const y = (v) => padT + plotH - (v / yMax) * plotH;
+      const band = plotW / LEAVES.length;
+      const bw = Math.round(band * 0.5), r = 4;
+      const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * yMax);
+      const y0 = y(0);
+      const ghostH = plotH * 0.25;
+
+      return (
+        <div className="panel p-3 relative transition-opacity duration-200" style={{ opacity: hasAny ? 1 : 0.6 }}>
+          <div className="flex justify-between items-baseline gap-2 mb-1">
+            <div className="text-[12px] leading-4 text-zinc-400">{metric.label}</div>
+            <div className="mono text-[11px] text-zinc-500 shrink-0">{metric.unit}</div>
+          </div>
+          <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" onMouseLeave={() => setHover(null)}
+               role="img" aria-label={`${metric.label}, so sánh 1, 2, 3 leaf`}>
+            {ticks.map((t, i) => (
+              <g key={i}>
+                <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke={i === 0 ? '#3f3f46' : 'var(--grid)'} strokeWidth="1" />
+                {hasAny && (
+                  <text x={padL - 6} y={y(t) + 3} textAnchor="end" fontSize="10" fill="var(--text-3)" className="mono">
+                    {Number(t.toPrecision(3))}
+                  </text>
+                )}
+              </g>
+            ))}
+            {rows.map((row, i) => {
+              const cx = padL + band * i + band / 2;
+              const x0 = cx - bw / 2;
+              const m = aggMean(row.a);
+              const label = <text x={cx} y={H - 10} textAnchor="middle" fontSize="11" fill="var(--text-2)">{row.leaf} leaf</text>;
+              if (m == null) {
+                return (
+                  <g key={row.leaf}>
+                    <title>{row.leaf} leaf: chưa có dữ liệu</title>
+                    <rect x={x0 + 0.5} y={y0 - ghostH} width={bw - 1} height={ghostH - 0.5} rx="3"
+                          fill="none" stroke="rgba(255,255,255,.1)" strokeWidth="1" strokeDasharray="4 3" />
+                    {label}
+                  </g>
+                );
+              }
+              // Giá trị 0 vẫn vẽ vạch cao tối thiểu 2px để phân biệt với cột trống
+              const hBar = Math.max(2, y0 - y(m));
+              const yt = y0 - hBar;
+              const d = hBar > r
+                ? `M${x0},${y0} V${yt + r} Q${x0},${yt} ${x0 + r},${yt} H${x0 + bw - r} Q${x0 + bw},${yt} ${x0 + bw},${yt + r} V${y0} Z`
+                : `M${x0},${y0} V${yt} H${x0 + bw} V${y0} Z`;
+              const hi = hover === i;
+              return (
+                <g key={row.leaf}>
+                  <path className="bar" d={d} style={{ d: `path("${d}")` }} fill={LEAF_COLOR[row.leaf]} opacity={hover == null || hi ? 1 : 0.45} />
+                  {row.a.n > 1 && (
+                    <g stroke="var(--text-2)" strokeWidth="1.5">
+                      <line x1={cx} x2={cx} y1={y(row.a.max)} y2={y(row.a.min)} />
+                      <line x1={cx - 5} x2={cx + 5} y1={y(row.a.max)} y2={y(row.a.max)} />
+                      <line x1={cx - 5} x2={cx + 5} y1={y(row.a.min)} y2={y(row.a.min)} />
+                    </g>
+                  )}
+                  <text x={cx} y={Math.min(yt, y(row.a.max)) - 6} textAnchor="middle" fontSize="11" fill="var(--text)" className="mono">
+                    {fmt(m, metric.digits)}
+                  </text>
+                  {label}
+                  <rect x={padL + band * i} y={padT} width={band} height={plotH + padB} fill="transparent"
+                        onMouseEnter={() => setHover(i)} />
+                </g>
+              );
+            })}
+          </svg>
+          {hover != null && rows[hover].a && (
+            <div className="fade-in absolute z-10 pointer-events-none mono text-[11px] bg-black/90 rounded-md shadow-lg px-2 py-1.5 leading-4"
+                 style={{ left: `${((padL + band * hover + band / 2) / W) * 100}%`, top: 34, transform: 'translateX(-50%)' }}>
+              <div className="flex items-center gap-1.5 text-zinc-200">
+                <span className="w-2 h-2 rounded-sm" style={{ background: LEAF_COLOR[rows[hover].leaf] }}></span>
+                {rows[hover].leaf} leaf
+              </div>
+              <div className="text-zinc-400">TB&nbsp; <span className="text-zinc-100">{fmt(aggMean(rows[hover].a), metric.digits)}</span> {metric.unit}</div>
+              <div className="text-zinc-400">min {fmt(rows[hover].a.min, metric.digits)} · max {fmt(rows[hover].a.max, metric.digits)}</div>
+              <div className="text-zinc-500">n = {rows[hover].a.n} {nLabel}</div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Biểu đồ vùng: diễn biến theo thời gian, tô màu theo số leaf ──
+    function Timeline({ timeline, metric }) {
+      const [hover, setHover] = useState(null);
+      const wrapRef = useRef(null);
+      const W = useWidth(wrapRef);
+      const H = 260, padL = 48, padR = 14, padT = 14, padB = 24;
+      const plotW = Math.max(1, W - padL - padR), plotH = H - padT - padB;
+      const pts = timeline.map((s, i) => ({ i, s, v: s[metric.key] })).filter((p) => Number.isFinite(p.v));
+      const enough = pts.length >= 2;
+
+      const yMax = enough ? niceMax(Math.max(...pts.map((p) => p.v))) : 1;
+      const x = (k) => padL + (k / Math.max(1, pts.length - 1)) * plotW;
+      const y = (v) => padT + plotH - (v / yMax) * plotH;
+      const y0 = y(0);
+      const ticks = [0, 0.25, 0.5, 0.75, 1];
+
+      // Tách thành các đoạn liên tục cùng số leaf và không bị ngắt quãng thời gian
+      const segs = [];
+      if (enough) {
+        pts.forEach((p, k) => {
+          const prev = pts[k - 1];
+          const cont = prev && prev.s.leaf === p.s.leaf && p.s.t - prev.s.t < 15000;
+          if (!cont) segs.push({ leaf: p.s.leaf, pts: [] });
+          segs[segs.length - 1].pts.push({ k, v: p.v });
+        });
+      }
+      const leavesUsed = [...new Set(segs.map((sg) => sg.leaf))];
+      const gradId = (leaf) => `tl-grad-${metric.key}-${leaf}`;
+
+      const onMove = (e) => {
+        if (!enough || !wrapRef.current) return;
+        const rect = wrapRef.current.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const k = Math.round(((px - padL) / plotW) * (pts.length - 1));
+        setHover(Math.max(0, Math.min(pts.length - 1, k)));
+      };
+      const hp = enough && hover != null ? pts[hover] : null;
+
+      return (
+        <div className="panel p-3">
+          <div className="flex justify-between items-baseline gap-2 mb-2">
+            <div className="text-[12px] text-zinc-400">{metric.label}</div>
+            <div className="mono text-[11px] text-zinc-500">{metric.unit}</div>
+          </div>
+          <div ref={wrapRef} className="relative w-full" style={{ height: H }}>
+            {W > 0 && (
+              <svg width={W} height={H} className="block" onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+                   role="img" aria-label={`${metric.label} theo thời gian`}>
+                {enough && (
+                  <defs>
+                    {leavesUsed.map((l) => (
+                      <linearGradient key={l} id={gradId(l)} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" style={{ stopColor: LEAF_COLOR[l], stopOpacity: 0.35 }} />
+                        <stop offset="100%" style={{ stopColor: LEAF_COLOR[l], stopOpacity: 0 }} />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                )}
+                {ticks.map((f, i) => (
+                  <g key={i}>
+                    <line x1={padL} x2={W - padR} y1={y(f * yMax)} y2={y(f * yMax)} stroke={i === 0 ? '#3f3f46' : 'var(--grid)'} />
+                    {enough && (
+                      <text x={padL - 8} y={y(f * yMax) + 3} textAnchor="end" fontSize="10" fill="var(--text-3)" className="mono">
+                        {Number((f * yMax).toPrecision(3))}
+                      </text>
+                    )}
+                  </g>
+                ))}
+                {enough ? (
+                  <g>
+                    <text x={padL} y={H - 6} fontSize="10" fill="var(--text-3)">mẫu cũ nhất</text>
+                    <text x={W - padR} y={H - 6} fontSize="10" fill="var(--text-3)" textAnchor="end">mới nhất</text>
+                    {segs.map((sg, j) => {
+                      if (sg.pts.length === 1) {
+                        return <circle key={j} cx={x(sg.pts[0].k)} cy={y(sg.pts[0].v)} r="2.5" fill={LEAF_COLOR[sg.leaf]} />;
+                      }
+                      const pp = sg.pts.map((q) => ({ x: x(q.k), y: y(q.v) }));
+                      const line = monotonePath(pp);
+                      const area = `${line} L${pp[pp.length - 1].x},${y0} L${pp[0].x},${y0} Z`;
+                      return (
+                        <g key={j}>
+                          <path d={area} fill={`url(#${gradId(sg.leaf)})`} stroke="none" />
+                          <path d={line} fill="none" stroke={LEAF_COLOR[sg.leaf]} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                        </g>
+                      );
+                    })}
+                    {hp && (
+                      <g>
+                        <line x1={x(hover)} x2={x(hover)} y1={padT} y2={padT + plotH} stroke="#52525b" strokeWidth="1" />
+                        <circle cx={x(hover)} cy={y(hp.v)} r="4" fill={LEAF_COLOR[hp.s.leaf]} stroke="var(--panel)" strokeWidth="2" />
+                      </g>
+                    )}
+                  </g>
+                ) : (
+                  <text x={padL + plotW / 2} y={padT + plotH / 2 + 4} textAnchor="middle" fontSize="12" fill="var(--text-3)">
+                    Chưa đủ dữ liệu để vẽ
+                  </text>
+                )}
+              </svg>
+            )}
+            {hp && (
+              <div className="absolute z-10 pointer-events-none mono text-[11px] bg-black/90 rounded-md shadow-lg px-2 py-1.5 leading-4"
+                   style={{ left: x(hover), top: 8, transform: `translateX(${hover > pts.length / 2 ? 'calc(-100% - 10px)' : '10px'})` }}>
+                <div className="text-zinc-400">{new Date(hp.s.t).toLocaleString('vi-VN')}</div>
+                <div className="flex items-center gap-1.5 text-zinc-200">
+                  <span className="w-2 h-2 rounded-sm" style={{ background: LEAF_COLOR[hp.s.leaf] }}></span>
+                  {hp.s.leaf} leaf · {fmt(hp.v, metric.digits)} {metric.unit}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Tab so sánh ──────────────────────────────────────────────
+    function CompareTab({ store, recording, setRecording, onReset, currentLeaf }) {
+      const { stats, timeline } = store;
+      const healAggs = useMemo(() => {
+        const o = {};
+        LEAVES.forEach((l) => { o[l] = aggOf(stats[l].heal); });
+        return o;
+      }, [stats]);
+      const metricAggs = (key) => {
+        const o = {};
+        LEAVES.forEach((l) => { o[l] = stats[l].metrics[key]; });
+        return o;
+      };
+
+      const exportCsv = () => {
+        const head = ['time', 'leaf', ...METRICS.map((m) => m.key)];
+        const lines = [head.join(',')];
+        timeline.forEach((s) => lines.push([new Date(s.t).toISOString(), s.leaf, ...METRICS.map((m) => (Number.isFinite(s[m.key]) ? s[m.key].toFixed(4) : ''))].join(',')));
+        lines.push('');
+        lines.push('summary_leaf,metric,n,mean,sd,min,max');
+        LEAVES.forEach((l) => {
+          [...METRICS.map((m) => [m.key, stats[l].metrics[m.key]]), ['heal_ms', healAggs[l]]].forEach(([k, a]) => {
+            if (a) lines.push([l, k, a.n, aggMean(a).toFixed(4), aggSd(a) != null ? aggSd(a).toFixed(4) : '', a.min, a.max].join(','));
+          });
+        });
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `mesh_so_sanh_leaf_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      };
+
+      const cell = (a, d) => {
+        const m = aggMean(a);
+        if (m == null) return <span className="font-sans italic font-normal text-[11px] text-zinc-500/60">chưa có dữ liệu</span>;
+        const sd = aggSd(a);
+        return (
+          <span>
+            <span className="text-zinc-50 font-semibold">{fmt(m, d)}</span>
+            {sd != null && <span className="text-zinc-500 text-[11px]"> ± {fmt(sd, d)}</span>}
+          </span>
+        );
+      };
+      const delta = (a, base) => {
+        const m = aggMean(a), b = aggMean(base);
+        if (m == null || b == null || b === 0) return null;
+        const p = ((m - b) / Math.abs(b)) * 100;
+        return <span className="text-zinc-500 text-[11px] ml-1">({p >= 0 ? '+' : ''}{p.toFixed(0)}%)</span>;
+      };
+
+      const leafWarn = currentLeaf != null && !LEAVES.includes(currentLeaf);
+      const rowCls = 'border-b border-white/5 even:bg-white/[0.02] hover:bg-white/5 transition-colors duration-150';
+      const thStyle = { background: 'var(--panel)' };
+
+      return (
+        <div className="p-3 sm:p-4 flex flex-col gap-3 max-w-[1600px] mx-auto w-full">
+          {/* Điều khiển ghi */}
+          <div className="panel p-3 flex flex-wrap items-center gap-x-4 gap-y-3">
+            <div className="flex items-center gap-2">
+              <span className="panel-h">Ghi số liệu</span>
+              <InfoTip label="Cách đo">
+                Cách đo: bật lần lượt 1, 2, 3 Camera Node; mỗi cấu hình để chạy vài phút. Mỗi lần Root gửi telemetry, dashboard tính
+                tốc độ thay đổi của <span className="mono">frames_ok / frames_drop / chunks</span> so với lần trước và gán mẫu vào nhóm theo
+                <span className="mono"> node_count</span>. Các mẫu lúc số leaf đang thay đổi hoặc Root khởi động lại bị bỏ qua.
+                Cột = giá trị trung bình, vạch = min–max. Dữ liệu lưu trong trình duyệt này.
+              </InfoTip>
+            </div>
+            <div className="btn-group">
+              <button onClick={() => setRecording(!recording)} aria-pressed={recording}
+                      className={`btn mono inline-flex items-center gap-2 ${recording ? '!text-red-300' : ''}`}>
+                <span className={`rec-dot ${recording ? 'rec-on' : ''}`} aria-hidden="true"></span>
+                {recording ? 'Đang ghi' : 'Tạm dừng ghi'}
+              </button>
+              <button onClick={exportCsv} disabled={!timeline.length} className="btn mono">Xuất CSV</button>
+              <button onClick={onReset} className="btn mono hover:!text-red-300 hover:!bg-red-950/40">Xoá dữ liệu</button>
+            </div>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <span className={`chip mono ${leafWarn ? 'border-yellow-400/60 text-yellow-300' : 'border-white/10 text-zinc-300'}`}>
+                LEAF HIỆN TẠI:
+                <span className={`font-semibold ${leafWarn ? '' : 'text-[color:var(--accent)]'}`}>{currentLeaf ?? '—'}</span>
+                {leafWarn && <span className="font-normal">· ngoài 1–3, không ghi</span>}
+              </span>
+              {LEAVES.map((l) => (
+                <span key={l} className="chip mono border-white/10 text-zinc-300">
+                  <span className="w-2 h-2 rounded-full" style={{ background: LEAF_COLOR[l] }} aria-hidden="true"></span>
+                  {l} leaf · <span className="text-zinc-50 font-semibold">{stats[l].samples}</span> mẫu
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Biểu đồ so sánh */}
+          <div className="panel-h px-1 pt-1">So sánh trung bình theo số leaf</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {METRICS.map((m) => <BarCompare key={m.key} metric={m} aggs={metricAggs(m.key)} />)}
+            <BarCompare metric={HEAL_METRIC} aggs={healAggs} nLabel="sự kiện" />
+          </div>
+
+          {/* Diễn biến theo thời gian */}
+          <div className="panel-h px-1 pt-1">Diễn biến theo thời gian</div>
+          <div className="flex flex-col gap-3">
+            <Timeline timeline={timeline} metric={METRICS[0]} />
+            <Timeline timeline={timeline} metric={METRICS[2]} />
+          </div>
+
+          {/* Bảng số liệu */}
+          <div className="panel">
+            <div className="panel-h px-3 pt-3 pb-2">Bảng so sánh (trung bình ± độ lệch chuẩn, % so với 1 leaf)</div>
+            <div className="overflow-auto max-h-[70vh] rounded-b-lg">
+              <table className="w-full mono text-[12px]">
+                <thead>
+                  <tr className="text-zinc-500">
+                    <th className="sticky top-0 z-[1] text-left font-normal px-3 py-2 border-b border-white/10" style={thStyle}>Thông số</th>
+                    <th className="sticky top-0 z-[1] text-left font-normal px-3 py-2 border-b border-white/10" style={thStyle}>Đơn vị</th>
+                    {LEAVES.map((l) => (
+                      <th key={l} className="sticky top-0 z-[1] text-right font-normal px-3 py-2 border-b border-white/10" style={thStyle}>
+                        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: LEAF_COLOR[l] }}></span>{l} leaf</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {METRICS.map((m) => (
+                    <tr key={m.key} className={`${rowCls} text-zinc-200`}>
+                      <td className="px-3 py-1.5 font-sans">{m.label}</td>
+                      <td className="px-3 py-1.5 text-zinc-500">{m.unit}</td>
+                      {LEAVES.map((l) => (
+                        <td key={l} className="px-3 py-1.5 text-right whitespace-nowrap">
+                          {cell(stats[l].metrics[m.key], m.digits)}{l > 1 && delta(stats[l].metrics[m.key], stats[1].metrics[m.key])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr className={`${rowCls} text-zinc-200`}>
+                    <td className="px-3 py-1.5 font-sans">{HEAL_METRIC.label}</td>
+                    <td className="px-3 py-1.5 text-zinc-500">ms</td>
+                    {LEAVES.map((l) => (
+                      <td key={l} className="px-3 py-1.5 text-right whitespace-nowrap">
+                        {cell(healAggs[l], 0)}{healAggs[l] && <span className="text-zinc-500 text-[11px]"> · {healAggs[l].n} sự kiện</span>}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className={`${rowCls} text-zinc-400`}>
+                    <td className="px-3 py-1.5 font-sans">Số mẫu đo</td>
+                    <td className="px-3 py-1.5 text-zinc-500">mẫu</td>
+                    {LEAVES.map((l) => <td key={l} className="px-3 py-1.5 text-right text-zinc-200">{stats[l].samples}</td>)}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Ô hiển thị một luồng camera ─────────────────────────────
+    function FrameTile({ nodeId, f, big, onClick }) {
+      const stale = Date.now() - f.ts > STALE_FRAME_MS;
+      const goFull = (e) => {
+        e.stopPropagation();
+        const el = e.currentTarget.closest('[data-tile]');
+        if (document.fullscreenElement) document.exitFullscreen();
+        else if (el && el.requestFullscreen) el.requestFullscreen();
+      };
+      return (
+        <div data-tile onClick={onClick}
+             className={`relative w-full h-full min-h-0 min-w-0 overflow-hidden rounded-md transition-shadow ${big ? '' : 'cursor-pointer hover:ring-1 hover:ring-white/20'}`}
+             style={{ background: 'var(--surface-2)' }}>
+          <img src={`data:image/jpeg;base64,${f.jpegBase64}`} alt={`Camera node ${nodeId}`}
+               className={`w-full h-full object-contain ${stale ? 'opacity-20' : ''}`} />
+          {stale && (
+            <div className="absolute inset-0 opacity-95">
+              <SignalEmpty small title="Mất tín hiệu" subtitle={big ? `ảnh cuối ${timeAgo(f.ts)} · frame #${f.frameId}` : timeAgo(f.ts)} />
+            </div>
+          )}
+          <div className="absolute top-0 left-0 right-0 flex justify-between items-start p-1.5 pointer-events-none">
+            <div className="mono text-[11px] font-medium bg-black/70 text-zinc-100 px-1.5 py-0.5 rounded">
+              NODE {nodeId} · #{f.frameId}
+            </div>
+            {big && <StatusBadge state={stale ? 'stale' : 'ok'} label={stale ? 'mất tín hiệu' : 'live'} className="!bg-black/70" />}
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 flex justify-between items-end p-1.5">
+            <div className="mono text-[11px] bg-black/70 text-zinc-300 px-1.5 py-0.5 rounded pointer-events-none truncate">
+              {f.fps > 0 ? `${f.fps.toFixed(1)} fps` : '— fps'} · {(f.bytes / 1024).toFixed(1)} KB · {timeAgo(f.ts)}
+            </div>
+            <button onClick={goFull} title="Toàn màn hình"
+                    className="mono text-[11px] bg-black/70 text-zinc-300 hover:text-white px-1.5 py-0.5 rounded">
+              ⛶
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     function MeshDashboard() {
       // ── Kết nối tới middleware ──────────────────────────────
       const [socketConnected, setSocketConnected] = useState(false);
       const [serialConnected, setSerialConnected] = useState(false);
+      const [serialInfo, setSerialInfo] = useState(null);
 
       // ── Dữ liệu thật nhận qua Socket.IO ──────────────────────
-      const [telemetry, setTelemetry] = useState(null);       // xem UART_PROTOCOL.md mục 4.2
-      const [frameByNode, setFrameByNode] = useState({});     // nodeId -> { jpegBase64, frameId, ts }
+      const [telemetry, setTelemetry] = useState(null);       // UART_PROTOCOL.md §4.2
+      const [telemetryAt, setTelemetryAt] = useState(null);
+      const [frameByNode, setFrameByNode] = useState({});     // nodeId -> { jpegBase64, frameId, ts, bytes, fps }
       const [frameCount, setFrameCount] = useState(0);
       const [fps, setFps] = useState(0);
       const [logs, setLogs] = useState([
-        { time: new Date().toLocaleTimeString('vi-VN'), msg: 'Dashboard khởi động, đang chờ middleware...' },
+        { time: new Date().toLocaleTimeString('vi-VN'), msg: HAS_IO ? 'Dashboard khởi động, đang chờ middleware...' : 'Chế độ xem trước (file://): không có Socket.IO, không nhận dữ liệu.' },
       ]);
 
-      const frameTimesRef = useRef([]);          // để ước lượng FPS thực tế
-      const lastSelfHealRef = useRef(undefined);  // để chỉ log khi giá trị self-heal THAY ĐỔI
+      // ── Giao diện ───────────────────────────────────────────
+      const [tab, setTab] = useState('live');
+      const [viewMode, setViewMode] = useState('grid');       // 'grid' | 'focus'
+      const [focusId, setFocusId] = useState(null);
+      const [, setTick] = useState(0);
 
-      const addLog = (msg) => {
-        setLogs((prev) => [{ time: new Date().toLocaleTimeString('vi-VN'), msg }, ...prev].slice(0, 10));
+      // ── Số liệu so sánh 1/2/3 leaf ───────────────────────────
+      const [compare, setCompare] = useState(loadStore);
+      const [recording, setRecordingState] = useState(true);
+      const recordingRef = useRef(true);
+      const setRecording = (v) => { recordingRef.current = v; setRecordingState(v); };
+
+      const frameTimesRef = useRef([]);          // ước lượng FPS tổng
+      const nodeTimesRef = useRef({});           // ước lượng FPS từng node
+      const lastSelfHealRef = useRef(undefined);  // chỉ log khi self-heal THAY ĐỔI
+      const prevTelRef = useRef(null);           // telemetry trước đó để tính tốc độ
+      const bytesAccRef = useRef(0);             // byte JPEG nhận được giữa hai telemetry
+      const framesAccRef = useRef(0);
+
+      // Lịch sử ngắn (HIST_MAX điểm) cho sparkline + khoảng min/max trong phiên
+      const histRef = useRef({ fps: [], drop: [], heap: [] });
+      const rangeRef = useRef({ heap: null, psram: null, fpsMax: 0 });
+      const pushHist = (key, v) => {
+        if (!Number.isFinite(v)) return;
+        const a = histRef.current[key];
+        a.push(v);
+        if (a.length > HIST_MAX) a.shift();
+      };
+      const extendRange = (key, v) => {
+        const r = rangeRef.current[key];
+        rangeRef.current[key] = r ? [Math.min(r[0], v), Math.max(r[1], v)] : [v, v];
       };
 
+      const addLog = (msg) => {
+        setLogs((prev) => [{ time: new Date().toLocaleTimeString('vi-VN'), msg }, ...prev].slice(0, 50));
+      };
+
+      useEffect(() => { saveStore(compare); }, [compare]);
       useEffect(() => {
+        const id = setInterval(() => setTick((n) => n + 1), 1000);
+        return () => clearInterval(id);
+      }, []);
+
+      useEffect(() => {
+        // Mở file trực tiếp (file://) thì /socket.io/socket.io.js không tải được -> io không tồn tại.
+        // Trả về sớm để giao diện vẫn render ở trạng thái "disconnected" thay vì trang trắng.
+        if (typeof io === 'undefined') {
+          console.warn('[Dashboard] Không tìm thấy Socket.IO client. Hãy chạy `node server.js COMx` rồi mở http://localhost:3000/ để nhận dữ liệu thật.');
+          return;
+        }
         const socket = io();
 
         socket.on('connect', () => {
@@ -101,239 +925,344 @@
         socket.on('disconnect', () => {
           setSocketConnected(false);
           setSerialConnected(false);
+          prevTelRef.current = null;
           addLog('Mất kết nối tới middleware!');
         });
         socket.on('status', (s) => {
           setSerialConnected(!!s.serialConnected);
+          setSerialInfo({ portName: s.portName, baudRate: s.baudRate });
           addLog(s.serialConnected
             ? `Middleware đã mở cổng ${s.portName} @ ${s.baudRate} bps`
             : `Middleware CHƯA mở được cổng ${s.portName} — kiểm tra board đã cắm & đúng COM chưa`);
         });
 
         socket.on('telemetry', (t) => {
+          const now = Date.now();
           setTelemetry(t);
+          setTelemetryAt(now);
           setSerialConnected(true);
 
-          // Chỉ log sự kiện self-healing khi số liệu thay đổi thật (không log lặp mỗi lần telemetry đến)
+          const leaf = typeof t.node_count === 'number' ? t.node_count : (Array.isArray(t.node_ids) ? t.node_ids.length : null);
+
+          // Self-healing: chỉ log/ghi khi giá trị thay đổi thật
           if (typeof t.last_self_heal_ms === 'number' && t.last_self_heal_ms >= 0 &&
               t.last_self_heal_ms !== lastSelfHealRef.current) {
             if (lastSelfHealRef.current !== undefined) {
               addLog(`SELF-HEALING: mesh khôi phục kết nối sau ${t.last_self_heal_ms} ms.`);
+              if (recordingRef.current && LEAVES.includes(leaf)) {
+                setCompare((st) => addHeal(st, leaf, t.last_self_heal_ms));
+              }
             }
             lastSelfHealRef.current = t.last_self_heal_ms;
           }
+
+          // Mẫu đo cho tab so sánh
+          const prev = prevTelRef.current;
+          const bytes = bytesAccRef.current, nFrames = framesAccRef.current;
+          bytesAccRef.current = 0;
+          framesAccRef.current = 0;
+          prevTelRef.current = { t, at: now, leaf };
+
+          // Lịch sử cho sparkline / thanh tiến trình (luôn ghi, không phụ thuộc nút "Đang ghi")
+          if (typeof t.heap_free === 'number') { pushHist('heap', t.heap_free / 1024); extendRange('heap', t.heap_free); }
+          if (typeof t.psram_free === 'number') extendRange('psram', t.psram_free);
+          if (prev) {
+            const dtw = (now - prev.at) / 1000;
+            if (dtw > 0.3 && dtw < 10) {
+              pushHist('fps', nFrames / dtw);
+              const dOk0 = t.frames_ok - prev.t.frames_ok, dDrop0 = t.frames_drop - prev.t.frames_drop;
+              if (dOk0 >= 0 && dDrop0 >= 0 && dOk0 + dDrop0 > 0) pushHist('drop', (100 * dDrop0) / (dOk0 + dDrop0));
+            }
+          }
+
+          if (!prev || !recordingRef.current) return;
+          if (prev.leaf !== leaf || !LEAVES.includes(leaf)) return;   // đang chuyển cấu hình
+
+          const dtWall = (now - prev.at) / 1000;
+          const dtRoot = typeof t.ts === 'number' && typeof prev.t.ts === 'number' ? (t.ts - prev.t.ts) / 1000 : dtWall;
+          if (dtWall < 0.3 || dtWall > 10 || dtRoot <= 0 || Math.abs(dtRoot - dtWall) > 1.5) return; // telemetry cũ / Root reset
+
+          const dOk = t.frames_ok - prev.t.frames_ok;
+          const dDrop = t.frames_drop - prev.t.frames_drop;
+          const dCh = t.chunks - prev.t.chunks;
+          if ([dOk, dDrop, dCh].some((d) => !Number.isFinite(d) || d < 0)) return; // bộ đếm bị reset
+
+          const s = { t: now, leaf, fps: dOk / dtRoot, fpsPerNode: dOk / dtRoot / leaf, kbps: bytes / 1024 / dtWall, chunksPs: dCh / dtRoot };
+          if (dOk + dDrop > 0) s.dropPct = (100 * dDrop) / (dOk + dDrop);
+          if (nFrames > 0) s.frameKB = bytes / 1024 / nFrames;
+          if (typeof t.heap_free === 'number') s.heapKB = t.heap_free / 1024;
+          setCompare((st) => addSample(st, s));
         });
 
         socket.on('frame', (data) => {
+          const now = Date.now();
+          const b64 = data.jpegBase64 || '';
+          const bytes = Math.floor((b64.length * 3) / 4) - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
+          bytesAccRef.current += bytes;
+          framesAccRef.current += 1;
+
+          const nt = (nodeTimesRef.current[data.nodeId] ||= []);
+          nt.push(now);
+          while (nt.length > 10) nt.shift();
+          const nodeFps = nt.length >= 2 ? (1000 * (nt.length - 1)) / (nt[nt.length - 1] - nt[0] || 1) : 0;
+
           setFrameCount((prev) => prev + 1);
           setFrameByNode((prev) => ({
             ...prev,
-            [data.nodeId]: { jpegBase64: data.jpegBase64, frameId: data.frameId, ts: Date.now() },
+            [data.nodeId]: { jpegBase64: b64, frameId: data.frameId, ts: now, bytes, fps: nodeFps },
           }));
 
-          const now = Date.now();
           const times = frameTimesRef.current;
           times.push(now);
           while (times.length > 10) times.shift();
           if (times.length >= 2) {
             const avgIntervalMs = (times[times.length - 1] - times[0]) / (times.length - 1);
-            if (avgIntervalMs > 0) setFps(1000 / avgIntervalMs);
+            if (avgIntervalMs > 0) {
+              const f = 1000 / avgIntervalMs;
+              setFps(f);
+              rangeRef.current.fpsMax = Math.max(rangeRef.current.fpsMax, f);
+            }
           }
         });
 
         return () => socket.disconnect();
       }, []);
 
-      // ── Xây danh sách node hiển thị từ telemetry thật ────────
-      // LƯU Ý: node_ids là danh sách PHẲNG (xem UART_PROTOCOL.md §4.2) —
-      // chưa có quan hệ cha/con thật, nên cây bên dưới chỉ vẽ Root + các
-      // node trực tiếp, KHÔNG suy diễn tầng sâu hơn khi chưa có dữ liệu đó.
+      const resetCompare = () => {
+        if (!window.confirm('Xoá toàn bộ số liệu so sánh đã ghi?')) return;
+        prevTelRef.current = null;
+        setCompare({ stats: emptyStats(), timeline: [] });
+      };
+
+      // node_ids là danh sách PHẲNG (UART_PROTOCOL.md §4.2) — chưa có quan hệ cha/con
+      const now = Date.now();
       const nodeIds = telemetry?.node_ids || [];
-
-      const renderTree = () => (
-        <div className="flex flex-col space-y-2 w-full">
-          <div className="flex items-center p-3 rounded-lg border bg-slate-800 border-slate-700 shadow-sm">
-            <div className="mr-3 p-2 bg-slate-900 rounded-md"><IconRoot /></div>
-            <div className="flex-1">
-              <div className="flex justify-between items-center">
-                <h4 className="text-sm font-semibold text-slate-200">Root Node</h4>
-                <span className="text-xs font-mono text-slate-400">
-                  layer {telemetry?.layer ?? '?'}
-                </span>
-              </div>
-              <div className="flex gap-3 text-xs mt-1 font-mono text-slate-500">
-                <span>{nodeIds.length} node con đang thấy</span>
-              </div>
-            </div>
-          </div>
-
-          {nodeIds.length === 0 && (
-            <div className="ml-8 pl-4 border-l-2 border-slate-700 border-dashed text-xs text-slate-500 font-mono py-2">
-              {serialConnected ? 'Chưa có node nào tham gia mesh...' : 'Đang chờ Root Node kết nối UART...'}
-            </div>
-          )}
-
-          {nodeIds.length > 0 && (
-            <div className="ml-8 mt-1 border-l-2 border-slate-700 border-dashed pl-4 flex flex-col space-y-2">
-              {nodeIds.map((id) => (
-                <div key={id} className="flex items-center p-3 rounded-lg border bg-slate-800/60 border-slate-700 shadow-sm">
-                  <div className="mr-3 p-2 bg-slate-900 rounded-md"><IconNode /></div>
-                  <div className="flex-1">
-                    <h4 className="text-sm font-semibold text-slate-200">Node {id}</h4>
-                    <div className="flex gap-3 text-xs mt-1 font-mono text-slate-500">
-                      <span>ID: {id}</span>
-                      {frameByNode[id] && <span>Ảnh cuối: {timeAgo(frameByNode[id].ts)}</span>}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="ml-8 pl-4 text-[11px] text-slate-600 italic">
-            * Cây hiện chỉ có 1 tầng (Root → node) — cây phân cấp đầy đủ (ai relay cho ai) cần
-            Root tự báo cáo thêm quan hệ cha/con, xem TODO trong node_root.ino.
-          </div>
-        </div>
-      );
-
+      const leafCount = telemetry ? (typeof telemetry.node_count === 'number' ? telemetry.node_count : nodeIds.length) : null;
       const frames = Object.entries(frameByNode);
+      const focusEntry = frames.find(([id]) => id === focusId) || frames[0];
+
+      // FPS hiển thị: về 0 khi quá STALE_FRAME_MS không có frame mới (đo thật, không giữ số cũ)
+      const lastFrameAt = frameTimesRef.current[frameTimesRef.current.length - 1];
+      const displayFps = lastFrameAt == null ? null : (now - lastFrameAt > STALE_FRAME_MS ? 0 : fps);
+
+      const dropPctTotal = telemetry && (telemetry.frames_ok + telemetry.frames_drop) > 0
+        ? (100 * telemetry.frames_drop) / (telemetry.frames_ok + telemetry.frames_drop) : null;
+      const selfHeal = telemetry && typeof telemetry.last_self_heal_ms === 'number' && telemetry.last_self_heal_ms >= 0
+        ? `${telemetry.last_self_heal_ms} ms` : (telemetry ? 'chưa xảy ra' : null);
+
+      // Trạng thái kết nối (luôn kèm chữ, không chỉ dựa vào màu)
+      const telAge = telemetryAt ? now - telemetryAt : null;
+      const mwBadge = socketConnected
+        ? { state: 'ok', label: 'connected' }
+        : { state: 'bad', label: HAS_IO ? 'disconnected' : 'disconnected (xem trước)' };
+      const rootBadge = !socketConnected ? { state: 'bad', label: 'chưa nhận' }
+        : telAge != null && telAge <= STALE_TELEMETRY_MS ? { state: 'ok', label: 'đang nhận' }
+        : telAge != null ? { state: 'stale', label: `dữ liệu cũ · ${timeAgo(telemetryAt)}` }
+        : { state: 'bad', label: serialConnected ? 'cổng mở, chưa có telemetry' : 'chưa nhận' };
+
+      // Thanh tiến trình: dùng tổng thật nếu đã điền hằng số, không thì theo min/max trong phiên
+      const memBar = (free, total, range) => {
+        if (free == null) return { frac: null, note: null };
+        if (total) return { frac: free / total, note: `${((100 * free) / total).toFixed(0)}% trống / tổng ${kb(total)}` };
+        if (!range) return { frac: null, note: null };
+        const [lo, hi] = range;
+        return { frac: hi > lo ? (free - lo) / (hi - lo) : 1, note: `theo phiên · ${kb(lo)} – ${kb(hi)}` };
+      };
+      const heapBar = memBar(telemetry?.heap_free ?? null, HEAP_TOTAL_BYTES, rangeRef.current.heap);
+      const psramBar = memBar(telemetry?.psram_free ?? null, PSRAM_TOTAL_BYTES, rangeRef.current.psram);
+      const fpsMax = rangeRef.current.fpsMax;
+      const fpsBar = displayFps == null ? { frac: null, note: null }
+        : FPS_TARGET ? { frac: displayFps / FPS_TARGET, note: `mục tiêu ${FPS_TARGET} fps` }
+        : { frac: fpsMax > 0 ? displayFps / fpsMax : null, note: fpsMax > 0 ? `theo phiên · max ${fpsMax.toFixed(1)} fps` : null };
+
+      // Dòng mô tả trạng thái thật cho empty state
+      const emptySubtitle = !HAS_IO ? 'Chế độ xem trước: không có Socket.IO nên không nhận được frame.'
+        : !socketConnected ? 'Chưa kết nối tới middleware (server.js).'
+        : !telemetry && !serialConnected ? 'Đã kết nối middleware, nhưng middleware chưa mở được cổng UART tới Root Node.'
+        : !telemetry ? 'Đã kết nối middleware, đang chờ Root Node gửi dữ liệu qua UART.'
+        : leafCount === 0 ? 'Root Node đang gửi telemetry nhưng chưa có node nào tham gia mesh.'
+        : `Mesh có ${leafCount} node nhưng chưa nhận được frame ảnh nào.`;
+
+      const gridCols = frames.length <= 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2';
+      const gridRows = frames.length <= 2 ? 'lg:grid-rows-1' : 'lg:grid-rows-2';
 
       return (
-        <div className="min-h-screen bg-slate-950 font-sans p-4 sm:p-6 lg:p-8">
-          {/* HEADER */}
-          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-800">
-            <div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">SmartNetworkX <span className="text-blue-500 font-light">Dashboard</span></h1>
-              <p className="text-sm text-slate-400 mt-1">Mạng Ad-hoc phi tập trung: Drone &amp; UGV — dữ liệu thật qua UART_PROTOCOL.md</p>
+        <div className="min-h-screen lg:h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
+          {/* Banner chế độ xem trước (file://) */}
+          {!HAS_IO && (
+            <div className="shrink-0 px-4 py-2 text-[12px] text-center" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+              Đang xem ở chế độ xem trước. Mở{' '}
+              <a href="http://localhost:3000/" className="mono underline underline-offset-2 hover:text-white">http://localhost:3000/</a>{' '}
+              để nhận dữ liệu thật
             </div>
-            <div className="flex flex-col items-end gap-1.5">
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm border ${
-                serialConnected ? 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50' : 'bg-red-900/20 text-red-400 border-red-800/50'
-              }`}>
-                <IconPlug ok={serialConnected} />
-                {serialConnected ? 'Root Node đang gửi dữ liệu' : 'Chưa nhận dữ liệu từ Root'}
-              </div>
-              <div className="text-[11px] text-slate-500 font-mono">
-                middleware: {socketConnected ? 'connected' : 'disconnected'}
-              </div>
+          )}
+
+          {/* HEADER */}
+          <header className="shrink-0 min-h-[52px] flex flex-wrap items-center gap-x-4 gap-y-2 px-3 sm:px-4 py-2"
+                  style={{ background: 'var(--surface-1)', boxShadow: 'var(--shadow)' }}>
+            <h1 className="text-[15px] font-semibold text-zinc-50 whitespace-nowrap">Dashboard Mesh Drone</h1>
+            <nav className="seg">
+              {[['live', 'Live'], ['compare', 'So sánh 1/2/3 leaf']].map(([id, label]) => (
+                <button key={id} onClick={() => setTab(id)} aria-pressed={tab === id}>{label}</button>
+              ))}
+            </nav>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <span className="hidden md:inline label">Middleware</span>
+              <StatusBadge {...mwBadge} />
+              <span className="hidden md:inline label ml-2">Root UART</span>
+              <StatusBadge {...rootBadge} />
+              <span className="mono text-[12px] font-semibold px-2.5 py-0.5 rounded-full ml-1" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                LEAF {leafCount ?? '—'}
+              </span>
             </div>
           </header>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {tab === 'compare' ? (
+            <div className="flex-1 overflow-y-auto">
+              <CompareTab store={compare} recording={recording} setRecording={setRecording}
+                          onReset={resetCompare} currentLeaf={leafCount} />
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)] gap-3 p-3">
 
-            {/* LEFT PANEL: TOPOLOGY TREE */}
-            <div className="lg:col-span-4 flex flex-col gap-6">
-              <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-xl backdrop-blur-sm">
-                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                  Mesh Topology
-                </h2>
-                <div className="w-full">
-                  {renderTree()}
-                </div>
-              </div>
+              {/* LEFT: THÔNG SỐ */}
+              <aside className="flex flex-col gap-3 min-h-0 min-w-0 lg:overflow-y-auto lg:pr-1">
+                <section className="panel p-3 flex flex-col gap-1.5">
+                  <div className="panel-h mb-1">Kết nối</div>
+                  <Row k="Middleware" badge={<StatusBadge {...mwBadge} />} />
+                  <Row k="Root UART" badge={<StatusBadge {...rootBadge} />} />
+                  <Row k="Cổng" v={serialInfo ? `${serialInfo.portName} @ ${serialInfo.baudRate}` : null} />
+                  <Row k="Telemetry" v={telemetryAt ? timeAgo(telemetryAt) : null} cls={telAge > STALE_TELEMETRY_MS ? 'text-yellow-300' : 'text-zinc-50'} />
+                </section>
 
-              {/* TELEMETRY METRICS — chỉ hiện số liệu THẬT có trong UART_PROTOCOL.md §4.2 */}
-              <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-xl backdrop-blur-sm">
-                <h2 className="text-lg font-semibold text-white mb-4">Telemetry (Root Node)</h2>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                    <div className="text-slate-400 text-xs mb-1 font-medium">Frame ghép OK</div>
-                    <div className="text-2xl font-bold text-emerald-400 font-mono">{telemetry?.frames_ok ?? '—'}</div>
-                  </div>
-                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                    <div className="text-slate-400 text-xs mb-1 font-medium">Frame bị hủy</div>
-                    <div className="text-2xl font-bold text-red-400 font-mono">{telemetry?.frames_drop ?? '—'}</div>
-                  </div>
-                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                    <div className="text-slate-400 text-xs mb-1 font-medium">Chunk đã nhận</div>
-                    <div className="text-xl font-bold text-blue-400 font-mono">{telemetry?.chunks ?? '—'}</div>
-                  </div>
-                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                    <div className="text-slate-400 text-xs mb-1 font-medium">FPS thực tế (đo)</div>
-                    <div className="text-xl font-bold text-purple-400 font-mono">{fps > 0 ? fps.toFixed(1) : '—'}</div>
-                  </div>
-                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 col-span-2">
-                    <div className="text-slate-400 text-xs mb-1 font-medium">Self-healing gần nhất</div>
-                    <div className="text-lg font-bold font-mono text-yellow-400">
-                      {telemetry && typeof telemetry.last_self_heal_ms === 'number' && telemetry.last_self_heal_ms >= 0
-                        ? `${telemetry.last_self_heal_ms} ms`
-                        : 'chưa xảy ra'}
+                <section className="panel p-3 flex flex-col gap-1.5">
+                  <div className="panel-h mb-1">Telemetry · Root Node</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="nested px-2.5 py-2">
+                      <div className="label">Leaf</div>
+                      {leafCount != null
+                        ? <div className="mono text-[20px] font-semibold" style={{ color: 'var(--accent)' }}>{leafCount}</div>
+                        : <div className="text-[12px] text-zinc-500 leading-7">chưa có dữ liệu</div>}
+                    </div>
+                    <div className="nested px-2.5 py-2">
+                      <div className="label">Layer</div>
+                      {telemetry?.layer != null
+                        ? <div className="mono text-[20px] font-semibold text-zinc-50">{telemetry.layer}</div>
+                        : <div className="text-[12px] text-zinc-500 leading-7">chưa có dữ liệu</div>}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 col-span-2 flex justify-between text-xs font-mono text-slate-400">
-                    <span>Heap: {telemetry?.heap_free != null ? `${Math.round(telemetry.heap_free / 1024)} KB` : '—'}</span>
-                    <span>PSRAM: {telemetry?.psram_free != null ? `${Math.round(telemetry.psram_free / 1024)} KB` : '—'}</span>
+                  <MetricCard label="FPS đo tại dashboard" value={displayFps != null ? displayFps.toFixed(1) : null} unit="fps"
+                              valueColor="var(--accent)" spark={histRef.current.fps} sparkColor="var(--accent)"
+                              bar={fpsBar.frac} barColor="var(--accent)" note={fpsBar.note} />
+                  <MetricCard label="Tỉ lệ hủy (tích luỹ)" value={dropPctTotal != null ? dropPctTotal.toFixed(1) : null} unit="%"
+                              valueColor={dropColor(dropPctTotal)} spark={histRef.current.drop} sparkColor={dropColor(dropPctTotal)}
+                              bar={dropPctTotal != null ? dropPctTotal / 100 : null} barColor={dropColor(dropPctTotal)}
+                              note={dropPctTotal != null ? 'thang 0–100% · sparkline: tỉ lệ từng chu kỳ telemetry' : null} />
+                  <MetricCard label="Heap trống" value={telemetry?.heap_free != null ? Math.round(telemetry.heap_free / 1024) : null} unit="KB"
+                              spark={histRef.current.heap} sparkColor="#A1A1AA" bar={heapBar.frac} barColor="var(--accent)" note={heapBar.note} />
+                  <MetricCard label="PSRAM trống" value={telemetry?.psram_free != null ? Math.round(telemetry.psram_free / 1024) : null} unit="KB"
+                              bar={psramBar.frac} barColor="var(--accent)" note={psramBar.note} />
+                  <Row k="Frame ghép OK" v={telemetry?.frames_ok} cls="text-emerald-400" />
+                  <Row k="Frame bị hủy" v={telemetry?.frames_drop} cls="text-red-400" />
+                  <Row k="Chunk đã nhận" v={telemetry?.chunks} />
+                  <Row k="Self-healing gần nhất" v={selfHeal} cls="text-yellow-300" />
+                </section>
+
+                <section className="panel p-3 flex flex-col gap-1.5">
+                  <div className="panel-h mb-1">Topology</div>
+                  <div className="nested px-2.5 py-1.5 flex justify-between items-center">
+                    <span className="mono text-[12px] font-semibold text-zinc-100">ROOT <span className="font-normal text-zinc-500">· layer {telemetry?.layer ?? '?'}</span></span>
+                    <StatusBadge {...rootBadge} />
                   </div>
-                </div>
-              </div>
-            </div>
+                  {nodeIds.length === 0 ? (
+                    <div className="mono text-[12px] text-zinc-500 pl-3">
+                      └ {telemetry ? 'chưa có node nào tham gia mesh' : 'chưa có dữ liệu'}
+                    </div>
+                  ) : nodeIds.map((id, i) => {
+                    const f = frameByNode[id];
+                    const st = !f ? { state: 'bad', label: 'chưa có ảnh' }
+                      : now - f.ts > STALE_FRAME_MS ? { state: 'stale', label: `mất tín hiệu · ${timeAgo(f.ts)}` }
+                      : { state: 'ok', label: 'đang phát' };
+                    return (
+                      <div key={id} className="flex items-center gap-1.5">
+                        <span className="mono text-[12px] text-zinc-600 w-3 text-center">{i === nodeIds.length - 1 ? '└' : '├'}</span>
+                        <div className="nested flex-1 min-w-0 px-2.5 py-1.5 flex justify-between items-center gap-2">
+                          <span className="mono text-[12px] text-zinc-200 truncate">node {id}</span>
+                          <StatusBadge {...st} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="text-[11px] text-zinc-500 mt-1">Danh sách phẳng do Root báo — chưa có quan hệ cha/con.</div>
+                </section>
 
-            {/* MIDDLE PANEL: CAMERA FEEDS */}
-            <div className="lg:col-span-8 flex flex-col gap-6">
-
-              <div className="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
-                <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/90">
-                  <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
-                    Media Stream (Motion JPEG qua UART)
-                  </h2>
-                  <div className="text-xs text-slate-400 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-700/50 font-mono">
-                    {fps > 0 ? `~ ${fps.toFixed(1)} FPS đo được` : 'chưa có frame'} · tổng {frameCount}
+                <section className="panel flex flex-col min-h-[180px] lg:flex-1">
+                  <div className="panel-h px-3 pt-3 pb-2">Log</div>
+                  <div className="nested mx-3 mb-3 p-2.5 flex-1 overflow-y-auto mono text-[11px] leading-[1.55] space-y-1 max-h-64 lg:max-h-none">
+                    {logs.map((log, i) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="text-zinc-500 shrink-0">{log.time}</span>
+                        <span className={
+                          log.msg.includes('Mất kết nối') ? 'text-red-400' :
+                          log.msg.includes('SELF-HEALING') ? 'text-emerald-400' :
+                          log.msg.includes('CHƯA') ? 'text-yellow-300' : 'text-zinc-300'
+                        }>{log.msg}</span>
+                      </div>
+                    ))}
                   </div>
+                </section>
+              </aside>
+
+              {/* RIGHT: MEDIA STREAM */}
+              <main className="panel flex flex-col min-h-[60vh] lg:min-h-0 min-w-0 overflow-hidden">
+                <div className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
+                  <span className="panel-h">Media stream</span>
+                  <span className="mono text-[11px] text-zinc-500">MJPEG qua UART</span>
+                  <div className="seg ml-1">
+                    {[['grid', 'Lưới'], ['focus', 'Tập trung']].map(([id, label]) => (
+                      <button key={id} onClick={() => setViewMode(id)} aria-pressed={viewMode === id}>{label}</button>
+                    ))}
+                  </div>
+                  <span className="ml-auto mono text-[11px] text-zinc-400">
+                    <span className="font-semibold" style={{ color: 'var(--accent)' }}>{displayFps != null ? `${displayFps.toFixed(1)} fps` : '— fps'}</span>
+                    {' '}· {frames.length} luồng · tổng {frameCount} frame
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-1 p-1 bg-slate-950">
-                  {frames.length === 0 && (
-                    <div className="col-span-1 md:col-span-2 aspect-video flex flex-col items-center justify-center text-slate-600 font-mono border-2 border-slate-800 border-dashed">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-2 opacity-50"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
-                      Đang chờ ảnh từ Camera Node...
+                <div className="flex-1 min-h-0 px-3 pb-3">
+                  {frames.length === 0 ? (
+                    <div className="h-full min-h-[50vh]">
+                      <SignalEmpty title="Đang chờ tín hiệu video" subtitle={emptySubtitle} />
+                    </div>
+                  ) : viewMode === 'grid' ? (
+                    <div className={`h-full grid ${gridCols} ${gridRows} gap-2 auto-rows-[minmax(240px,1fr)] lg:auto-rows-auto`}>
+                      {frames.map(([id, f]) => (
+                        <FrameTile key={id} nodeId={id} f={f} big onClick={() => { setFocusId(id); setViewMode('focus'); }} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col gap-2">
+                      <div className="flex-1 min-h-[45vh] lg:min-h-0 flex">
+                        <div className="flex-1 min-w-0 flex">
+                          <FrameTile nodeId={focusEntry[0]} f={focusEntry[1]} big />
+                        </div>
+                      </div>
+                      {frames.length > 1 && (
+                        <div className="h-24 shrink-0 flex gap-2 overflow-x-auto">
+                          {frames.map(([id, f]) => (
+                            <div key={id} className="w-40 shrink-0 flex rounded-md"
+                                 style={id === focusEntry[0] ? { boxShadow: '0 0 0 1.5px var(--accent)' } : undefined}>
+                              <FrameTile nodeId={id} f={f} onClick={() => setFocusId(id)} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
-                  {frames.map(([nodeId, f]) => (
-                    <div key={nodeId} className="relative aspect-video bg-slate-950 rounded overflow-hidden group">
-                      <div className="absolute top-2 left-2 z-10 bg-black/60 text-white text-xs px-2 py-1 rounded backdrop-blur font-mono border border-white/10 shadow-lg">
-                        Node {nodeId} · frame #{f.frameId}
-                      </div>
-                      <img
-                        src={`data:image/jpeg;base64,${f.jpegBase64}`}
-                        alt={`Camera node ${nodeId}`}
-                        className="w-full h-full object-contain bg-black opacity-90 group-hover:opacity-100 transition-opacity"
-                      />
-                      <div className="absolute bottom-2 right-2 text-xs text-slate-300 font-mono bg-black/50 px-2 py-0.5 rounded border border-white/10">
-                        {timeAgo(f.ts)}
-                      </div>
-                    </div>
-                  ))}
                 </div>
-              </div>
-
-              {/* EVENT LOGS (Terminal Style) — log LOG-frame thật từ ESP32 qua UART */}
-              <div className="bg-[#0c1017] border border-slate-800 rounded-xl overflow-hidden shadow-xl flex-1 flex flex-col min-h-[250px]">
-                <div className="p-3 border-b border-slate-800 bg-slate-900/90 flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-                  <h3 className="text-sm font-mono text-slate-300">System Logs &amp; Routing Events (middleware)</h3>
-                </div>
-                <div className="p-4 flex-1 overflow-y-auto font-mono text-xs sm:text-sm space-y-2.5 h-48 max-h-72">
-                  {logs.map((log, i) => (
-                    <div key={i} className="flex gap-3 items-start opacity-90 hover:opacity-100 transition-opacity">
-                      <span className="text-slate-500 whitespace-nowrap shrink-0">[{log.time}]</span>
-                      <span className={`break-words ${
-                        log.msg.includes('CRITICAL') || log.msg.includes('Mất kết nối') ? 'text-red-400 font-bold' :
-                        log.msg.includes('SELF-HEALING') ? 'text-emerald-400' :
-                        log.msg.includes('CHƯA') ? 'text-yellow-400' : 'text-slate-300'
-                      }`}>
-                        {log.msg}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="animate-pulse text-slate-500 mt-2">█</div>
-                </div>
-              </div>
-
+              </main>
             </div>
-          </div>
+          )}
         </div>
       );
     }

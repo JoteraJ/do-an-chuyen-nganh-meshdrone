@@ -14,7 +14,7 @@
  *  Kiến trúc bộ nhớ:
  *  ─────────────────
  *  - Assembly buffers: Pre-allocated (PSRAM nếu có, ngược lại SRAM)
- *  - MAX_CONCURRENT_FRAMES × 64KB = 1 × 64KB ≈ 64KB (đã giảm từ 320KB)
+ *  - MAX_CONCURRENT_FRAMES × MAX_FRAME_SIZE = 4 × 24KB = 96KB
  *  - Không còn latest_frame riêng: HTTP/UART đọc trực tiếp từ assembly buffer
  *  - Tất cả cấp phát 1 lần trong setup() → KHÔNG phân mảnh heap
  *
@@ -56,6 +56,9 @@
 #include "chunk_protocol.h"
 #include "crc16.h"   // CRC16/CCITT-FALSE cho giao thức UART -> middleware, xem UART_PROTOCOL.md
 
+// 1 = in log moi frame hoan thanh/bat dau ghep (debug), 0 = tat khi do dac hieu nang
+#define DEBUG_ASM_VERBOSE 0
+
 
 /* ================================================================
  *  CẤU TRÚC DỮ LIỆU — Frame Assembly
@@ -90,8 +93,8 @@ typedef struct {
      *   - Kiểm tra chunk bị thiếu khi debug
      *   - Biết khi nào nhận ĐỦ (received_count == total_chunks)
      *
-     * Kích thước 64: hỗ trợ tối đa 64 chunks/frame
-     * = 64 × 1024 = 65536 bytes = MAX_FRAME_SIZE
+     * Kích thước 24: hỗ trợ tối đa 24 chunks/frame
+     * = 24 × 1024 = 24576 bytes = MAX_FRAME_SIZE
      */
     bool chunk_received[MAX_CHUNKS_PER_FRAME];
 
@@ -343,11 +346,11 @@ static void send_image_frame(uint32_t node_id, uint16_t frame_id, const uint8_t*
  *  KHỞI TẠO BỘ NHỚ
  *
  *  [ĐÃ ĐỔI] Cấp phát buffer SRAM/PSRAM tự động qua alloc_buffer():
- *  - MAX_CONCURRENT_FRAMES assembly buffers × 64KB
- *    (hiện tại = 1 × 64KB = 64KB)
- *  - KHÔNG còn latest_frame buffer riêng (tiết kiệm 64KB)
- *  - KHÔNG còn uart_tx_buffer riêng (tiết kiệm 64KB+10B)
- *  - Tổng hiện tại: ~64KB — vừa SRAM nội bộ ESP32
+ *  - MAX_CONCURRENT_FRAMES assembly buffers × MAX_FRAME_SIZE
+ *    (hiện tại = 4 × 24KB = 96KB)
+ *  - KHÔNG còn latest_frame buffer riêng (tiết kiệm 24KB)
+ *  - KHÔNG còn uart_tx_buffer riêng (tiết kiệm 24KB+10B)
+ *  - Tổng hiện tại: ~96KB — vừa SRAM nội bộ ESP32-WROOM-32D
  *
  *  Tại sao pre-allocate?
  *  ─────────────────────
@@ -481,8 +484,10 @@ int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
             memset(assemblies[i].chunk_received, 0,
                    sizeof(assemblies[i].chunk_received));
 
+#if DEBUG_ASM_VERBOSE
             DBGF("[ASM] Slot %d: bat dau ghep frame (node=%u, frame=%d, chunks=%d)\n",
                           i, node_id, frame_id, total_chunks);
+#endif
             return i;
         }
     }
@@ -496,7 +501,9 @@ int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
     int      oldest_idx  = 0;
 
     for (int i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
-        if (assemblies[i].start_time_ms < oldest_time) {
+        // assemblies[i].active luôn true ở đây (bước 1 đã loại slot trống),
+        // nhưng vẫn kiểm tra để an toàn nếu logic phía trên thay đổi sau này
+        if (assemblies[i].active && assemblies[i].start_time_ms < oldest_time) {
             oldest_time = assemblies[i].start_time_ms;
             oldest_idx  = i;
         }
@@ -602,6 +609,25 @@ void receive_and_reassemble(uint32_t from, String &msg) {
     int slot = find_assembly_slot(header.node_id, header.frame_id);
 
     if (slot < 0) {
+        /* Supersede: Leaf gửi tuần tự từng frame qua kết nối TCP có thứ
+         * tự, nên nếu chunk của MỘT frame mới từ cùng node đã tới, mọi
+         * slot đang ghép dở của CÙNG node nhưng frame_id khác chắc chắn
+         * không bao giờ hoàn thành nữa (frame cũ đã bị Leaf bỏ qua).
+         * Giải phóng ngay thay vì chiếm slot tới hết REASSEMBLY_TIMEOUT_MS,
+         * để nhường chỗ cho Leaf khác thay vì bị eviction chéo. */
+        for (int i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
+            if (assemblies[i].active &&
+                assemblies[i].node_id == header.node_id &&
+                assemblies[i].frame_id != header.frame_id) {
+                DBGF("[ASM] SUPERSEDE: Huy slot %d (node=%u, frame cu=%d, nhan %d/%d chunks, frame moi=%d)\n",
+                              i, assemblies[i].node_id, assemblies[i].frame_id,
+                              assemblies[i].received_count, assemblies[i].total_chunks,
+                              header.frame_id);
+                assemblies[i].active = false;
+                frames_dropped++;
+            }
+        }
+
         // Slot mới — frame chưa từng thấy
         slot = allocate_assembly_slot(header.node_id, header.frame_id,
                                       header.total_chunks);
@@ -688,18 +714,28 @@ void receive_and_reassemble(uint32_t from, String &msg) {
      * HTTP streaming loop sẽ kiểm tra flag và gửi frame.
      */
     if (fa.received_count >= fa.total_chunks) {
+#if DEBUG_ASM_VERBOSE
         DBGF("[ASM] HOAN THANH! node=%u, frame=%d, size=%d bytes, chunks=%d\n",
                       fa.node_id, fa.frame_id,
                       fa.jpeg_total_len, fa.total_chunks);
+#endif
 
         /* [ĐÃ ĐỔI] Bỏ bước memcpy sang latest_frame buffer riêng.
          * Thay bằng: latest_frame trỏ thẳng vào fa.jpeg_buffer (assembly buffer).
          *
-         * An toàn vì:
-         * - Arduino loop chạy đơn luồng, không có race condition thật sự
-         * - Slot (fa.active = false) chỉ bị tái dụng ở lần nhận frame tiếp theo,
-         *   tức là sau khi loop() đã xử lý xong new_frame_available
-         * - Với MAX_CONCURRENT_FRAMES=1, slot 0 luôn là slot duy nhất
+         * An toàn cho luồng UART: send_image_frame() bên dưới gửi đồng bộ
+         * ngay lúc frame hoàn thành, đọc buffer trước khi slot có thể bị
+         * tái dụng.
+         *
+         * CẢNH BÁO (chỉ ảnh hưởng luồng HTTP MJPEG, không dùng hiện tại vì
+         * mesh.stationManual() đang tắt): với MAX_CONCURRENT_FRAMES > 1,
+         * slot này có thể bị allocate_assembly_slot()/eviction tái dụng
+         * và ghi đè trước khi handle_http_clients() kịp gửi xong
+         * latest_frame trong send_mjpeg_frame() (vòng loop() kế tiếp),
+         * vì nhiều Leaf gửi xen kẽ khiến slot khác được cấp trước khi
+         * HTTP gửi xong. Chấp nhận được vì HTTP không dùng lúc này;
+         * nếu bật lại HTTP với nhiều Leaf, cần copy latest_frame sang
+         * buffer riêng thay vì trỏ thẳng vào assembly buffer.
          */
         latest_frame        = fa.jpeg_buffer; // trỏ trực tiếp, không copy
         latest_frame_len    = fa.jpeg_total_len;
@@ -1011,6 +1047,9 @@ void handle_http_clients() {
  * giữ nguyên source ID nên 'from' = node_id gốc).
  */
 void receivedCallback(uint32_t from, String &msg) {
+    // Beacon do chính Root phát ra (xem loop()) — phòng xa, Root
+    // không nên tự nhận broadcast của mình, nhưng bỏ qua sớm cho chắc.
+    if (msg.startsWith(ROOT_BEACON_PREFIX)) return;
     receive_and_reassemble(from, msg);
 }
 
@@ -1097,7 +1136,10 @@ void setup() {
     /* ── Khởi tạo painlessMesh ──────────────────────────── */
     DBGLN("\n[MESH] Dang khoi tao painlessMesh (Root mode)...");
 
-    mesh.setDebugMsgTypes(ERROR | CONNECTION);  // TAM THOI de xac minh bug #275 tren fork Alteriom — doi lai ERROR sau khi debug xong
+    // painlessMesh in log nay thang ra Serial (khong qua khung DBGF/UART_PROTOCOL.md),
+    // chen vao luong nhi phan 921600bps va lam middleware phai bo byte (bytesSkipped).
+    // Muc ERROR hiem khi in nen chap nhan duoc.
+    mesh.setDebugMsgTypes(ERROR);
     mesh.init(MESH_SSID, MESH_PASSWORD, MESH_PORT);
 
     mesh.onReceive(&receivedCallback);
@@ -1210,6 +1252,15 @@ void loop() {
     if (now_telemetry - last_telemetry_time >= TELEMETRY_SEND_INTERVAL_MS) {
         last_telemetry_time = now_telemetry;
         send_telemetry_frame();
+    }
+
+    /* [4c] Phát beacon Root định kỳ để Leaf tự học root_id, dùng
+     * sendSingle() thay vì sendBroadcast() cho từng chunk (xem Sửa 2) */
+    static uint32_t last_beacon_time = 0;
+    uint32_t now_beacon = millis();
+    if (now_beacon - last_beacon_time >= ROOT_BEACON_INTERVAL_MS) {
+        last_beacon_time = now_beacon;
+        mesh.sendBroadcast(ROOT_BEACON_PREFIX);
     }
 
     /* [5] In thống kê định kỳ (mỗi 15 giây) */
