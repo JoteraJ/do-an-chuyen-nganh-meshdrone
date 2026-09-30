@@ -170,6 +170,34 @@ uint32_t chunks_received    = 0;    // Tổng chunk đã nhận
 uint32_t uart_drop          = 0;    // Frame ảnh ghép xong nhưng bỏ không ghi UART (TX buffer còn đầy)
 uint32_t uart_defer         = 0;    // Khung TELEMETRY phải hoãn (TX buffer chưa đủ chỗ), đếm 1 lần/khung
 uint32_t log_drop           = 0;    // Khung LOG bị bỏ vì TX buffer chưa đủ chỗ
+
+/* ── Đo đạc tìm nguyên nhân reset (chỉ đo, không đổi hành vi) ──
+ * Cửa sổ = khoảng giữa 2 khung TELEMETRY đã ghi thành công (~2 s); reset sau
+ * mỗi lần gửi. */
+uint32_t loop_max_ms_win  = 0;            // vòng loop() lâu nhất trong cửa sổ (ms)
+uint32_t heap_min_win     = UINT32_MAX;   // esp_get_free_heap_size() thấp nhất trong cửa sổ
+
+/* Bản ghi sống qua reset mềm/WDT (vùng .noinit, KHÔNG sống qua mất nguồn).
+ * Ghi mỗi vòng loop() (chỉ vài lệnh ghi RAM) để lúc WDT cắt ngang vẫn còn số
+ * của cửa sổ đang dở. setup() đọc ra khi esp_reset_reason() là 5/6/7. */
+#define DIAG_MAGIC 0x52544431UL   // "RTD1"
+struct DiagNoinit {
+    uint32_t magic;
+    uint32_t loop_max_ms;    // loop_max_ms_win cửa sổ đang chạy
+    uint32_t heap_last;      // heap đo ở vòng loop() cuối
+    uint32_t heap_min_win;   // heap_min_win cửa sổ đang chạy
+    uint32_t up_s;           // uptime lúc ghi
+    uint8_t  stage;          // bước loop() đang chạy (LOOP_STAGE_*)
+};
+__NOINIT_ATTR DiagNoinit diag_noinit;
+
+#define LOOP_STAGE_MESH_UPDATE  1
+#define LOOP_STAGE_CLEANUP      2
+#define LOOP_STAGE_TRACK        3
+#define LOOP_STAGE_TELEMETRY    4
+#define LOOP_STAGE_BEACON       5
+#define LOOP_STAGE_STAT         6
+#define LOOP_STAGE_DONE         7
 size_t   uart_tx_buf_size   = 0;    // TX ring buffer thật sự có (0 = không có, chỉ FIFO 128 B)
 uint32_t last_stats_time    = 0;    // Thời điểm in thống kê cuối
 
@@ -865,12 +893,16 @@ static bool send_telemetry_frame() {
         "\"frames_ok\":%u,\"frames_drop\":%u,\"chunks\":%u,\"chunk_err\":%u,"
         "\"heap_free\":%u,\"psram_free\":%u,\"uart_drop\":%u,"
         "\"uart_defer\":%u,\"log_drop\":%u,"
+        "\"loop_max_ms\":%u,\"heap_min_win\":%u,\"heap_min_boot\":%u,\"rx_q\":null,"
         "\"node_count\":%u,\"node_ids\":[",
         (unsigned long)millis(),
         (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
         (unsigned)chunk_errors,
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(), (unsigned)uart_drop,
         (unsigned)uart_defer, (unsigned)log_drop,
+        (unsigned)loop_max_ms_win,
+        (unsigned)(heap_min_win == UINT32_MAX ? esp_get_free_heap_size() : heap_min_win),
+        (unsigned)ESP.getMinFreeHeap(),
         (unsigned)node_n);
 
     if (pos < 0) pos = 0;
@@ -963,6 +995,7 @@ static bool send_telemetry_frame() {
     tele_deferred = false;
     heal_n = 0;   // đã ghi thật → xóa, mỗi heal event chỉ xuất hiện trong 1 khung
     lat_sum_us = 0; lat_n = 0; lat_node_count = 0;   // mẫu latency đã gửi
+    loop_max_ms_win = 0; heap_min_win = UINT32_MAX;   // mở cửa sổ đo mới
     return true;
 }
 
@@ -1820,6 +1853,25 @@ static void ap_map_self_check() {
 }
 
 
+/* report_wdt_boot(): reset do watchdog (5 INT_WDT, 6 TASK_WDT, 7 WDT khác) →
+ * gửi ngay 1 khung LOG với số đo cuối còn trong diag_noinit (Mục 5). Không
+ * đổi cấu hình WDT. Sau đó xóa magic để lần reset sau không in lại số cũ. */
+static void report_wdt_boot() {
+    int rr = (int)esp_reset_reason();
+    if (rr == ESP_RST_INT_WDT || rr == ESP_RST_TASK_WDT || rr == ESP_RST_WDT) {
+        if (diag_noinit.magic == DIAG_MAGIC) {
+            DBGF("[BOOT] WDT reset (ly do %d): loop_max_ms=%u heap_cuoi=%u heap_min_win=%u stage=%u up_s=%u",
+                 rr, (unsigned)diag_noinit.loop_max_ms, (unsigned)diag_noinit.heap_last,
+                 (unsigned)diag_noinit.heap_min_win, (unsigned)diag_noinit.stage,
+                 (unsigned)diag_noinit.up_s);
+        } else {
+            DBGF("[BOOT] WDT reset (ly do %d): khong co so do truoc reset", rr);
+        }
+    }
+    diag_noinit.magic = 0;
+}
+
+
 /* ================================================================
  *  SETUP — Khởi tạo Root Node
  * ================================================================ */
@@ -1919,6 +1971,7 @@ void setup() {
     DBGF("[MESH] Root Node ID: %u\n", mesh.getNodeId());
     DBGF("[SYS] Firmware: %s\n", FW_VERSION);
     DBGF("[SYS] Ly do reset: %d", (int)esp_reset_reason());
+    report_wdt_boot();
     ap_map_self_check();
     DBGF("[MESH] Mesh SSID: %s\n", MESH_SSID);
 
@@ -1961,6 +2014,9 @@ void setup() {
  *  Tất cả đều non-blocking để không ảnh hưởng lẫn nhau.
  * ================================================================ */
 void loop() {
+    uint32_t loop_t0 = millis();   // đo loop_max_ms (Mục 5, chỉ đo)
+    diag_noinit.stage = LOOP_STAGE_MESH_UPDATE;
+
     /* [1] Cập nhật Mesh — BẮT BUỘC gọi mỗi vòng loop */
     mesh.update();
 
@@ -1986,12 +2042,14 @@ void loop() {
 #endif
 
     /* [3] Dọn dẹp frame timeout */
+    diag_noinit.stage = LOOP_STAGE_CLEANUP;
     cleanup_stale_frames();
 
     /* [3b] In dòng tổng kết lỗi chunk còn treo (giới hạn 1 dòng/giây) */
     chunk_log_flush();
 
     /* [3c] Theo dõi node im lặng + bảo vệ heap */
+    diag_noinit.stage = LOOP_STAGE_TRACK;
     static uint32_t last_track_time = 0;
     if (millis() - last_track_time >= TRACK_UPDATE_MS) {
         last_track_time = millis();
@@ -2005,6 +2063,7 @@ void loop() {
 #endif
 
     /* [4b] Gửi khung TELEMETRY cho middleware định kỳ (xem UART_PROTOCOL.md §4.2) */
+    diag_noinit.stage = LOOP_STAGE_TELEMETRY;
     static uint32_t last_telemetry_time = 0;
     static bool     telemetry_pending   = false;   // 1 khung chờ ghi (ghi đè, không xếp hàng)
     uint32_t now_telemetry = millis();
@@ -2016,6 +2075,7 @@ void loop() {
 
     /* [4c] Phát beacon Root định kỳ để Leaf tự học root_id, dùng
      * sendSingle() thay vì sendBroadcast() cho từng chunk (xem Sửa 2) */
+    diag_noinit.stage = LOOP_STAGE_BEACON;
     static uint32_t last_beacon_time = 0;
     uint32_t now_beacon = millis();
     if (now_beacon - last_beacon_time >= ROOT_BEACON_INTERVAL_MS) {
@@ -2024,6 +2084,7 @@ void loop() {
     }
 
     /* [5] In thống kê định kỳ (mỗi 15 giây) */
+    diag_noinit.stage = LOOP_STAGE_STAT;
     uint32_t now = millis();
     if (now - last_stats_time >= 15000) {
         last_stats_time = now;
@@ -2034,4 +2095,17 @@ void loop() {
                       ESP.getFreeHeap(), ESP.getFreePsram(),
                       mesh.getNodeList().size());
     }
+
+    /* [6] Đo đạc cửa sổ (Mục 5): vòng loop() lâu nhất, heap thấp nhất.
+     * Ghi luôn vào diag_noinit để còn đọc được sau reset WDT. */
+    uint32_t loop_ms = age_ms(millis(), loop_t0);
+    if (loop_ms > loop_max_ms_win) loop_max_ms_win = loop_ms;
+    uint32_t heap_now = esp_get_free_heap_size();
+    if (heap_now < heap_min_win) heap_min_win = heap_now;
+    diag_noinit.magic        = DIAG_MAGIC;
+    diag_noinit.loop_max_ms  = loop_max_ms_win;
+    diag_noinit.heap_last    = heap_now;
+    diag_noinit.heap_min_win = heap_min_win;
+    diag_noinit.up_s         = millis() / 1000;
+    diag_noinit.stage        = LOOP_STAGE_DONE;
 }
