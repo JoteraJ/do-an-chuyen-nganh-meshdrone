@@ -198,6 +198,21 @@ __NOINIT_ATTR DiagNoinit diag_noinit;
 #define LOOP_STAGE_BEACON       5
 #define LOOP_STAGE_STAT         6
 #define LOOP_STAGE_DONE         7
+
+/* ── Chunk trễ của frame đã đóng (Mục 2) — xem is_late_chunk() ── */
+#define ASM_HIST_NODES        8
+#define LATE_FRAME_SPAN       16
+#define LATE_CHUNK_WINDOW_MS  (2UL * REASSEMBLY_TIMEOUT_MS)
+
+struct AsmHist {
+    uint32_t node_id;        // 0 = ô trống
+    uint16_t newest;         // frame_id mới nhất đã mở slot
+    bool     newest_closed;  // frame newest đã đóng (xong hoặc hủy)
+    uint32_t mark_ms;        // millis() lần mở/đóng newest gần nhất
+};
+AsmHist  asm_hist[ASM_HIST_NODES];
+uint32_t late_chunk_drop = 0;   // chunk trễ của frame đã đóng bị bỏ (telemetry)
+
 size_t   uart_tx_buf_size   = 0;    // TX ring buffer thật sự có (0 = không có, chỉ FIFO 128 B)
 uint32_t last_stats_time    = 0;    // Thời điểm in thống kê cuối
 
@@ -896,14 +911,14 @@ static bool send_telemetry_frame() {
         "{\"ts\":%lu,\"role\":\"root\",\"layer\":0,\"fw\":\"" FW_VERSION "\","
         "\"frames_ok\":%u,\"frames_drop\":%u,\"chunks\":%u,\"chunk_err\":%u,"
         "\"heap_free\":%u,\"psram_free\":%u,\"uart_drop\":%u,"
-        "\"uart_defer\":%u,\"log_drop\":%u,"
+        "\"uart_defer\":%u,\"log_drop\":%u,\"late_chunk_drop\":%u,"
         "\"loop_max_ms\":%u,\"heap_min_win\":%u,\"heap_min_boot\":%u,\"rx_q\":null,"
         "\"node_count\":%u,\"node_ids\":[",
         (unsigned long)millis(),
         (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
         (unsigned)chunk_errors,
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(), (unsigned)uart_drop,
-        (unsigned)uart_defer, (unsigned)log_drop,
+        (unsigned)uart_defer, (unsigned)log_drop, (unsigned)late_chunk_drop,
         (unsigned)loop_max_ms_win,
         (unsigned)(heap_min_win == UINT32_MAX ? esp_get_free_heap_size() : heap_min_win),
         (unsigned)ESP.getMinFreeHeap(),
@@ -1163,6 +1178,59 @@ bool init_memory() {
  *  Trả về: Index slot (0 đến MAX_CONCURRENT_FRAMES-1)
  *          hoặc -1 nếu không tìm thấy
  * ================================================================ */
+/* ── Chunk trễ của frame đã đóng (test15: node 1207369673 frame 193) ──
+ *
+ * Mỗi node (header.node_id) nhớ frame_id MỚI NHẤT đã mở slot và frame đó đã
+ * đóng chưa (ghép xong / SUPERSEDE / TIMEOUT / EVICTION). Chunk tới mà không
+ * có slot, và:
+ *   - frame_id cũ hơn frame mới nhất 1..LATE_FRAME_SPAN (so sánh int16_t nên
+ *     đúng qua quay vòng 65535 → 0), hoặc
+ *   - đúng frame mới nhất nhưng frame đó đã đóng,
+ * trong LATE_CHUNK_WINDOW_MS kể từ lần mở/đóng gần nhất → chunk TRỄ: bỏ, đếm
+ * late_chunk_drop, KHÔNG mở slot mới, KHÔNG SUPERSEDE frame đang ghép.
+ * Hết cửa sổ thời gian → không coi là trễ (Leaf khởi động lại, frame_id về 0
+ * sau vài giây boot + vào mesh sẽ được nhận bình thường). Mảng tĩnh. */
+/* ASM_HIST_NODES, LATE_*, struct AsmHist, asm_hist[], late_chunk_drop: khai báo ở khối biến toàn cục. */
+
+static AsmHist* asm_hist_find(uint32_t node_id, bool create, uint32_t now) {
+    AsmHist* empty  = NULL;
+    AsmHist* oldest = &asm_hist[0];
+    for (uint8_t i = 0; i < ASM_HIST_NODES; i++) {
+        if (asm_hist[i].node_id == node_id) return &asm_hist[i];
+        if (asm_hist[i].node_id == 0) { if (empty == NULL) empty = &asm_hist[i]; continue; }
+        if (age_ms(now, asm_hist[i].mark_ms) > age_ms(now, oldest->mark_ms)) oldest = &asm_hist[i];
+    }
+    if (!create) return NULL;
+    AsmHist* h = empty ? empty : oldest;   // hết ô → thay node lâu không mở/đóng frame nhất
+    memset(h, 0, sizeof(*h));
+    h->node_id = node_id;
+    return h;
+}
+
+static bool is_late_chunk(uint32_t node_id, uint16_t frame_id, uint32_t now) {
+    const AsmHist* h = asm_hist_find(node_id, false, now);
+    if (h == NULL || age_ms(now, h->mark_ms) > LATE_CHUNK_WINDOW_MS) return false;
+    int16_t d = (int16_t)(frame_id - h->newest);
+    if (d < 0 && d >= -LATE_FRAME_SPAN) return true;
+    return d == 0 && h->newest_closed;
+}
+
+static void asm_hist_opened(uint32_t node_id, uint16_t frame_id, uint32_t now) {
+    AsmHist* h = asm_hist_find(node_id, true, now);
+    h->newest = frame_id;
+    h->newest_closed = false;
+    h->mark_ms = now;
+}
+
+/* Gọi ở MỌI chỗ slot bị đóng; chỉ đánh dấu khi đó là frame mới nhất của node
+ * (frame cũ hơn đã được luật "cũ hơn 1..LATE_FRAME_SPAN" che). */
+static void asm_hist_closed(uint32_t node_id, uint16_t frame_id, uint32_t now) {
+    AsmHist* h = asm_hist_find(node_id, false, now);
+    if (h == NULL || h->newest != frame_id) return;
+    h->newest_closed = true;
+    h->mark_ms = now;
+}
+
 int find_assembly_slot(uint32_t node_id, uint16_t frame_id) {
     for (int i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
         if (assemblies[i].active &&
@@ -1243,6 +1311,7 @@ int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
                   assemblies[oldest_idx].total_chunks);
 
     frames_dropped++;
+    asm_hist_closed(assemblies[oldest_idx].node_id, assemblies[oldest_idx].frame_id, millis());
 
     /* Tái sử dụng slot — chỉ reset metadata, giữ nguyên buffer PSRAM */
     assemblies[oldest_idx].active         = true;
@@ -1339,6 +1408,19 @@ void receive_and_reassemble(uint32_t from, String &msg) {
     int slot = find_assembly_slot(header.node_id, header.frame_id);
 
     if (slot < 0) {
+        uint32_t now_asm = millis();
+
+        /* Chunk trễ của frame đã đóng → bỏ, không mở slot, không SUPERSEDE
+         * (xem khối "Chunk trễ của frame đã đóng" ở trên). */
+        if (is_late_chunk(header.node_id, header.frame_id, now_asm)) {
+            late_chunk_drop++;
+#if DEBUG_ASM_VERBOSE
+            DBGF("[ASM] CHUNK TRE: bo (node=%u, frame=%u, chunk %u/%u)", (unsigned)header.node_id,
+                 (unsigned)header.frame_id, (unsigned)header.chunk_index, (unsigned)header.total_chunks);
+#endif
+            return;
+        }
+
         /* Supersede: Leaf gửi tuần tự từng frame qua kết nối TCP có thứ
          * tự, nên nếu chunk của MỘT frame mới từ cùng node đã tới, mọi
          * slot đang ghép dở của CÙNG node nhưng frame_id khác chắc chắn
@@ -1355,6 +1437,7 @@ void receive_and_reassemble(uint32_t from, String &msg) {
                               header.frame_id);
                 assemblies[i].active = false;
                 frames_dropped++;
+                asm_hist_closed(assemblies[i].node_id, assemblies[i].frame_id, now_asm);
             }
         }
 
@@ -1365,6 +1448,7 @@ void receive_and_reassemble(uint32_t from, String &msg) {
             DBGLN("[ASM] Khong the cap phat slot!");
             return;
         }
+        asm_hist_opened(header.node_id, header.frame_id, now_asm);
     }
 
     FrameAssembly &fa = assemblies[slot];
@@ -1482,6 +1566,7 @@ void receive_and_reassemble(uint32_t from, String &msg) {
 
         // Giải phóng slot — buffer giữ nguyên cho tái sử dụng
         fa.active = false;
+        asm_hist_closed(fa.node_id, fa.frame_id, millis());
 
         frames_completed++;
     }
@@ -1525,6 +1610,7 @@ void cleanup_stale_frames() {
                 // Giải phóng slot — buffer PSRAM giữ nguyên
                 assemblies[i].active = false;
                 frames_dropped++;
+                asm_hist_closed(assemblies[i].node_id, assemblies[i].frame_id, now);
             }
         }
     }
@@ -2092,9 +2178,9 @@ void loop() {
     uint32_t now = millis();
     if (now - last_stats_time >= 15000) {
         last_stats_time = now;
-        DBGF("[STAT] Frames OK: %d | Dropped: %d | UART drop: %u | defer: %u | log_drop: %u | Chunks: %d | "
+        DBGF("[STAT] Frames OK: %d | Dropped: %d | Late: %u | UART drop: %u | defer: %u | log_drop: %u | Chunks: %d | "
                       "Heap: %d | PSRAM: %d | Nodes: %d\n",
-                      frames_completed, frames_dropped, (unsigned)uart_drop,
+                      frames_completed, frames_dropped, (unsigned)late_chunk_drop, (unsigned)uart_drop,
                       (unsigned)uart_defer, (unsigned)log_drop, chunks_received,
                       ESP.getFreeHeap(), ESP.getFreePsram(),
                       mesh.getNodeList().size());

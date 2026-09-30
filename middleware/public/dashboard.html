@@ -192,7 +192,8 @@
     const CSV_EXTRA = ['latMinMs', 'latMaxMs', 'latN', 'uartDrop',   // uartDrop: bộ đếm uart_drop tích luỹ của Root
       // Root FW ≥ 2026-10-01a (thiếu → ô trống): uartDefer/logDrop tích luỹ; loopMaxMs, heapMinWinKB theo
       // cửa sổ 1 chu kỳ telemetry; heapMinBootKB = ESP.getMinFreeHeap() từ lúc khởi động
-      'uartDefer', 'logDrop', 'loopMaxMs', 'heapMinWinKB', 'heapMinBootKB'];
+      'uartDefer', 'logDrop', 'loopMaxMs', 'heapMinWinKB', 'heapMinBootKB',
+      'lateChunkDrop'];   // lateChunkDrop: chunk trễ của frame đã đóng bị Root bỏ (tích luỹ)
     // Cột mô tả cấu hình trong CSV (chuỗi): [khoá trong mẫu, tên cột].
     // n_leaf = số Leaf còn trong cây đang gửi NSTAT (biết fw) — khác cột "leaf" (= node_count của Root, gồm cả node chưa gửi NSTAT).
     // fw_leaf = "id:fw;…"; stagger = "stg" trong NSTAT: 1 / 0 / mix (Leaf lệch cấu hình), trống = Leaf fw cũ không gửi.
@@ -1375,6 +1376,7 @@
           if (typeof t.uart_drop === 'number') s.uartDrop = t.uart_drop;
           if (typeof t.uart_defer === 'number') s.uartDefer = t.uart_defer;
           if (typeof t.log_drop === 'number') s.logDrop = t.log_drop;
+          if (typeof t.late_chunk_drop === 'number') s.lateChunkDrop = t.late_chunk_drop;
           if (typeof t.loop_max_ms === 'number') s.loopMaxMs = t.loop_max_ms;
           if (typeof t.heap_min_win === 'number') s.heapMinWinKB = t.heap_min_win / 1024;
           if (typeof t.heap_min_boot === 'number') s.heapMinBootKB = t.heap_min_boot / 1024;
@@ -1612,6 +1614,7 @@
                               bar={psramBar.frac} barColor="var(--accent)" note={psramBar.note} />
                   <Row k="Frame ghép OK" v={telemetry?.frames_ok} cls="text-emerald-400" />
                   <Row k="Frame bị hủy" v={telemetry?.frames_drop} cls="text-red-400" />
+                  <Row k="Chunk trễ bị bỏ" v={telemetry?.late_chunk_drop} cls={telemetry?.late_chunk_drop > 0 ? 'text-yellow-300' : 'text-zinc-50'} />
                   <Row k="Chunk đã nhận" v={telemetry?.chunks} />
                   <Row k="Ảnh bỏ ở UART (TX đầy)" v={telemetry?.uart_drop} cls={telemetry?.uart_drop > 0 ? 'text-yellow-300' : 'text-zinc-50'} />
                   {/* Đo đạc ổn định Root (FW ≥ 2026-10-01a): cửa sổ = 1 chu kỳ telemetry. Firmware cũ không gửi → — */}
