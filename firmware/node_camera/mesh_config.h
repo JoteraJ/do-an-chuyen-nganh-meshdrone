@@ -206,7 +206,7 @@
  *  ap_rssi: RSSI từng station đang nối vào AP của node này (đo
  *  phía AP, esp_wifi_ap_get_sta_list), khóa = nodeId của station.
  * ============================================================ */
-#define FW_VERSION                "2026-09-30c"
+#define FW_VERSION                "2026-10-01a"
 #define NSTAT_PREFIX              "#NSTAT"   // '#' khong thuoc bang ma Base64 -> khong nham voi chunk
 #define NSTAT_INTERVAL_MS         2000
 #define AP_RSSI_MAX               6         // so station toi da doc tu AP moi node (ap_rssi / link_rssi)
