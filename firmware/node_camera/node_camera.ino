@@ -529,10 +529,11 @@ void send_nstat() {
 
     int pos = snprintf(buf, sizeof(buf),
              NSTAT_PREFIX "{\"id\":%u,\"fw\":\"" FW_VERSION "\",\"rssi\":%s,"
-             "\"heap\":%u,\"frames\":%u,\"chunks_fail\":%u,\"rst\":%d,\"up_s\":%u,\"ap_rssi\":{",
+             "\"heap\":%u,\"frames\":%u,\"chunks_fail\":%u,\"rst\":%d,\"up_s\":%u,\"stg\":%d,\"ap_rssi\":{",
              (unsigned)mesh.getNodeId(), rssi_str, (unsigned)ESP.getFreeHeap(),
              (unsigned)frames_sent, (unsigned)chunks_send_fail,
-             (int)boot_reset_reason, (unsigned)(millis() / 1000));
+             (int)boot_reset_reason, (unsigned)(millis() / 1000),
+             (int)STAGGER_ENABLE);   // "stg": lịch chụp stagger bật/tắt (cột stagger trong CSV)
 
     wifi_sta_list_t sta_list;
     if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {

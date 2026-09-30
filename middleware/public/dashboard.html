@@ -189,7 +189,14 @@
       { key: 'latMs',      label: 'Latency chụp → Root ghép xong', unit: 'ms',      digits: 1 },
     ];
     // Cột phụ trong CSV (theo từng mẫu), không vẽ biểu đồ riêng
-    const CSV_EXTRA = ['latMinMs', 'latMaxMs', 'latN', 'uartDrop'];   // uartDrop: bộ đếm uart_drop tích luỹ của Root
+    const CSV_EXTRA = ['latMinMs', 'latMaxMs', 'latN', 'uartDrop',   // uartDrop: bộ đếm uart_drop tích luỹ của Root
+      // Root FW ≥ 2026-10-01a (thiếu → ô trống): uartDefer/logDrop tích luỹ; loopMaxMs, heapMinWinKB theo
+      // cửa sổ 1 chu kỳ telemetry; heapMinBootKB = ESP.getMinFreeHeap() từ lúc khởi động
+      'uartDefer', 'logDrop', 'loopMaxMs', 'heapMinWinKB', 'heapMinBootKB'];
+    // Cột mô tả cấu hình trong CSV (chuỗi): [khoá trong mẫu, tên cột].
+    // n_leaf = số Leaf còn trong cây đang gửi NSTAT (biết fw) — khác cột "leaf" (= node_count của Root, gồm cả node chưa gửi NSTAT).
+    // fw_leaf = "id:fw;…"; stagger = "stg" trong NSTAT: 1 / 0 / mix (Leaf lệch cấu hình), trống = Leaf fw cũ không gửi.
+    const CSV_META = [['nLeaf', 'n_leaf'], ['fwRoot', 'fw_root'], ['fwLeaf', 'fw_leaf'], ['stagger', 'stagger']];
     // Cột topology trong CSV: [khoá trong mẫu, tên cột]. Chỉ tính node còn trong cây và
     // NSTAT chưa quá NODE_STALE_MS. hop_max = độ sâu lớn nhất, rssi_min = liên kết yếu nhất (theo link_rssi).
     // lat_by_node: latency trung bình từng node trong chu kỳ telemetry (telemetry "lat_by_node").
@@ -807,12 +814,13 @@
 
       const exportCsv = () => {
         const cols = [...METRICS.map((m) => m.key), ...CSV_EXTRA];
-        const head = ['time', 'leaf', ...cols, ...CSV_TOPO.map(([, name]) => name)];
+        const head = ['time', 'leaf', ...cols, ...CSV_TOPO.map(([, name]) => name), ...CSV_META.map(([, name]) => name)];
         const lines = [head.join(',')];
         timeline.forEach((s) => lines.push([
           new Date(s.t).toISOString(), s.leaf,
           ...cols.map((k) => (Number.isFinite(s[k]) ? s[k].toFixed(4) : '')),
           ...CSV_TOPO.map(([k]) => (s[k] == null ? '' : String(s[k]))),
+          ...CSV_META.map(([k]) => (s[k] == null ? '' : String(s[k]))),
         ].join(',')));
         lines.push('');
         lines.push('summary_leaf,metric,n,mean,sd,min,max');
@@ -1365,6 +1373,12 @@
           if (nFrames > 0) s.frameKB = bytes / 1024 / nFrames;
           if (typeof t.heap_free === 'number') s.heapKB = t.heap_free / 1024;
           if (typeof t.uart_drop === 'number') s.uartDrop = t.uart_drop;
+          if (typeof t.uart_defer === 'number') s.uartDefer = t.uart_defer;
+          if (typeof t.log_drop === 'number') s.logDrop = t.log_drop;
+          if (typeof t.loop_max_ms === 'number') s.loopMaxMs = t.loop_max_ms;
+          if (typeof t.heap_min_win === 'number') s.heapMinWinKB = t.heap_min_win / 1024;
+          if (typeof t.heap_min_boot === 'number') s.heapMinBootKB = t.heap_min_boot / 1024;
+          if (typeof t.fw === 'string') s.fwRoot = t.fw;
           if (t.lat_n > 0 && Number.isFinite(t.lat_avg_ms)) {
             s.latMs = t.lat_avg_ms; s.latMinMs = t.lat_min_ms; s.latMaxMs = t.lat_max_ms; s.latN = t.lat_n;
           }
@@ -1378,6 +1392,11 @@
             if (lat.length) s.latByNode = lat.map(([id, v]) => `${id}:${v.toFixed(1)}`).join(';');
           }
           if (rssis.length) { s.rssiMin = Math.min(...rssis.map(linkRssi)); s.rssiByNode = rssis.map((n) => `${n.id}:${linkRssi(n)}`).join(';'); }
+          const withFw = live.filter((n) => typeof n.fw === 'string' && n.fw);
+          s.nLeaf = withFw.length;
+          if (withFw.length) s.fwLeaf = withFw.map((n) => `${n.id}:${n.fw}`).join(';');
+          const stg = [...new Set(live.filter((n) => n.stg === 0 || n.stg === 1).map((n) => n.stg))];
+          if (stg.length) s.stagger = stg.length > 1 ? 'mix' : String(stg[0]);
           setCompare((st) => addSample(st, s));
         });
 
