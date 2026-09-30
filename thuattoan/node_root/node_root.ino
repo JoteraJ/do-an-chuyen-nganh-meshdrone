@@ -506,6 +506,8 @@ static void collect_hops(const painlessmesh::protocol::NodeTree& t, uint8_t dept
                          uint32_t* ids, uint8_t* hops, uint32_t* parents, uint8_t& n) {
     for (auto& s : t.subs) {
         if (n >= TREE_MAX_NODES) return;
+        // Root vọng lại trong nhánh con (vòng liên kết, test12) → bỏ cả nhánh đó
+        if (s.nodeId == mesh.getNodeId()) continue;
         ids[n] = s.nodeId;
         hops[n] = depth + 1;
         parents[n] = t.nodeId;
@@ -589,6 +591,25 @@ static void append_node_json(char* json, size_t sz, int& pos, bool first,
     else    json_appendf(json, sz, pos, "\"age_ms\":null}");
 }
 
+/* collect_node_ids(): mesh.getNodeList() bỏ Root và ID trùng.
+ *
+ * getNodeList() chỉ bỏ Root ở gốc cây; nếu một Leaf báo lại cây con có chứa
+ * Root (vòng liên kết lúc topology đang đổi — test12: Root hiện ở hop 3) thì
+ * Root bị đếm thêm 1 và node ở nhánh vọng lại bị đếm 2 lần. */
+static uint8_t collect_node_ids(uint32_t* ids, uint8_t max) {
+    uint32_t self = mesh.getNodeId();
+    uint8_t n = 0;
+    for (auto& id : mesh.getNodeList()) {
+        if (id == self || n >= max) continue;
+        bool dup = false;
+        for (uint8_t i = 0; i < n; i++) {
+            if (ids[i] == id) { dup = true; break; }
+        }
+        if (!dup) ids[n++] = id;
+    }
+    return n;
+}
+
 /* send_telemetry_frame(): xem cấu trúc JSON trong UART_PROTOCOL.md §4.2.
  * Gọi định kỳ mỗi TELEMETRY_SEND_INTERVAL_MS từ loop().
  *
@@ -598,7 +619,8 @@ static void append_node_json(char* json, size_t sz, int& pos, bool first,
  * static để không chiếm stack của loopTask. Nếu vẫn bị cắt, bỏ khung
  * thay vì gửi JSON hỏng. */
 static void send_telemetry_frame() {
-    auto nodeList = mesh.getNodeList();
+    uint32_t node_ids[TREE_MAX_NODES];
+    uint8_t  node_n = collect_node_ids(node_ids, TREE_MAX_NODES);
 
     static char json[4096];
     int pos = snprintf(json, sizeof(json),
@@ -610,18 +632,13 @@ static void send_telemetry_frame() {
         (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
         (unsigned)chunk_errors,
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
-        (unsigned)nodeList.size());
+        (unsigned)node_n);
 
-    bool first = true;
-    for (auto& id : nodeList) {
-        if (pos < 0 || pos >= (int)sizeof(json) - 16) break; // an toan, tranh tran buffer khi qua nhieu node
-        int written = snprintf(json + pos, sizeof(json) - pos, "%s%u", first ? "" : ",", (unsigned)id);
-        if (written < 0) break;
-        pos += written;
-        first = false;
-    }
     if (pos < 0) pos = 0;
     if (pos > (int)sizeof(json) - 1) pos = (int)sizeof(json) - 1;
+    for (uint8_t i = 0; i < node_n; i++) {
+        json_appendf(json, sizeof(json), pos, "%s%u", i ? "," : "", (unsigned)node_ids[i]);
+    }
     json_appendf(json, sizeof(json), pos, "],\"last_self_heal_ms\":%ld", (long)last_self_heal_ms);
 
     /* Latency của chu kỳ vừa qua. Không có mẫu → lat_n = 0, các giá trị là
