@@ -168,6 +168,8 @@ uint32_t frames_completed   = 0;    // Tổng frame ghép thành công
 uint32_t frames_dropped     = 0;    // Tổng frame bị hủy (timeout/eviction)
 uint32_t chunks_received    = 0;    // Tổng chunk đã nhận
 uint32_t uart_drop          = 0;    // Frame ảnh ghép xong nhưng bỏ không ghi UART (TX buffer còn đầy)
+uint32_t uart_defer         = 0;    // Khung TELEMETRY phải hoãn (TX buffer chưa đủ chỗ), đếm 1 lần/khung
+uint32_t log_drop           = 0;    // Khung LOG bị bỏ vì TX buffer chưa đủ chỗ
 size_t   uart_tx_buf_size   = 0;    // TX ring buffer thật sự có (0 = không có, chỉ FIFO 128 B)
 uint32_t last_stats_time    = 0;    // Thời điểm in thống kê cuối
 
@@ -433,7 +435,29 @@ static bool ap_links_find(const ApLinks& a, uint32_t id, int& rssi) {
 #define FRAME_TYPE_TELEMETRY  0x02
 #define FRAME_TYPE_LOG        0x03
 
-static void send_uart_frame(uint8_t type, const uint8_t* payload, size_t len) {
+/* uart_room_for(): TX buffer còn đủ chỗ cho 1 khung frame_len byte mà
+ * Serial.write() KHÔNG chặn loop()?
+ *
+ * availableForWrite() = tx_buf_size − số byte đang chờ (không tính header
+ * item của ring buffer NOSPLIT trong driver UART, và item không được vắt qua
+ * cuối buffer → có thể phí tới 1 item ≤ ~2 KB ở đuôi). Nên đòi thêm dự phòng:
+ * min(frame_len, 2048) + 128 byte.
+ *
+ * Không có TX buffer (uart_tx_buf_size == 0, setTxBufferSize thất bại) hoặc
+ * khung lớn tới mức buffer không bao giờ đủ → true: giữ hành vi CŨ (ghi chặn),
+ * để khung không bị hoãn mãi. */
+static bool uart_room_for(size_t frame_len) {
+    if (uart_tx_buf_size == 0) return true;
+    size_t need = frame_len + (frame_len < 2048 ? frame_len : 2048) + 128;
+    if (need > uart_tx_buf_size) return true;
+    return Serial.availableForWrite() >= (int)need;
+}
+
+/* send_uart_frame(): true = đã ghi cả khung; false = TX buffer chưa đủ chỗ,
+ * KHÔNG ghi byte nào (người gọi quyết định hoãn hay bỏ). */
+static bool send_uart_frame(uint8_t type, const uint8_t* payload, size_t len) {
+    if (!uart_room_for(7 + len + 2)) return false;
+
     uint8_t header[7];
     header[0] = 0xAA;
     header[1] = 0x55;
@@ -455,15 +479,17 @@ static void send_uart_frame(uint8_t type, const uint8_t* payload, size_t len) {
     }
     uint8_t crc_bytes[2] = { (uint8_t)(crc & 0xFF), (uint8_t)((crc >> 8) & 0xFF) };
     Serial.write(crc_bytes, sizeof(crc_bytes));
+    return true;
 }
 
 /* log_framef()/log_frame_str(): thay Serial.printf()/Serial.println() cũ.
  * Bỏ ký tự '\n'/'\r' ở cuối vì khung đã tự có ranh giới rõ ràng, không
- * cần dấu xuống dòng để middleware biết hết message. */
+ * cần dấu xuống dòng để middleware biết hết message.
+ * TX buffer đầy → BỎ dòng log (không chặn loop()), đếm log_drop. */
 static void log_frame_str(const char* msg) {
     size_t len = strlen(msg);
     while (len > 0 && (msg[len - 1] == '\n' || msg[len - 1] == '\r')) len--;
-    send_uart_frame(FRAME_TYPE_LOG, (const uint8_t*)msg, len);
+    if (!send_uart_frame(FRAME_TYPE_LOG, (const uint8_t*)msg, len)) log_drop++;
 }
 
 static void log_framef(const char* fmt, ...) {
@@ -476,7 +502,7 @@ static void log_framef(const char* fmt, ...) {
     size_t len = (size_t)n;
     if (len >= sizeof(buf)) len = sizeof(buf) - 1; // vsnprintf da tu cat, tranh doc rac
     while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) len--;
-    send_uart_frame(FRAME_TYPE_LOG, (const uint8_t*)buf, len);
+    if (!send_uart_frame(FRAME_TYPE_LOG, (const uint8_t*)buf, len)) log_drop++;
 }
 
 #define DBGLN(x) log_frame_str(x)
@@ -797,6 +823,7 @@ static void check_heap_guard() {
     if (heap >= HEAP_CRITICAL_BYTES) { low_since = 0; return; }
     if (low_since == 0) { low_since = now ? now : 1; return; }
     if (now - low_since > HEAP_CRITICAL_MS) {
+        Serial.flush();   // xả TX trước để dòng lý do restart không bị bỏ (log_drop)
         DBGF("[HEAP] RESTART: heap trong %u < %u byte lien tuc %u ms",
              (unsigned)heap, (unsigned)HEAP_CRITICAL_BYTES, (unsigned)(now - low_since));
         Serial.flush();
@@ -812,8 +839,23 @@ static void check_heap_guard() {
  * 4 node ≈ 2,2KB, 8 node ≈ 3,3KB < 4096; từ ~11 node trở lên sẽ vượt. Vẫn rất
  * xa giới hạn khung UART (131072, UART_PROTOCOL.md §3). Buffer static để không
  * chiếm stack của loopTask. Nếu bị cắt, bỏ khung thay vì gửi JSON hỏng
- * (heal_events chưa gửi được giữ lại cho khung sau). */
-static void send_telemetry_frame() {
+ * (heal_events chưa gửi được giữ lại cho khung sau).
+ *
+ * Không chặn loop(): TX buffer chưa đủ chỗ → HOÃN (trả false, uart_defer +1
+ * một lần cho khung này), loop() gọi lại ở vòng sau và dựng JSON MỚI (chỉ giữ
+ * bản mới nhất, không xếp hàng). heal_events và mẫu latency chỉ xóa SAU khi
+ * khung đã thật sự ghi → không mất sự kiện heal khi hoãn.
+ * Trả true khi xong việc (đã ghi, hoặc bỏ vì JSON quá dài). */
+static bool     tele_deferred = false;   // khung hiện tại đã bị đếm uart_defer chưa
+static uint32_t tele_last_len = 2048;    // độ dài JSON lần dựng trước (ước lượng chỗ cần)
+
+static bool send_telemetry_frame() {
+    // Chắc chắn không đủ chỗ → khỏi dựng JSON (asNodeTree() tốn CPU/heap)
+    if (!uart_room_for(7 + tele_last_len + 2)) {
+        if (!tele_deferred) { uart_defer++; tele_deferred = true; }
+        return false;
+    }
+
     uint32_t node_ids[TREE_MAX_NODES];
     uint8_t  node_n = collect_node_ids(node_ids, TREE_MAX_NODES);
 
@@ -822,11 +864,13 @@ static void send_telemetry_frame() {
         "{\"ts\":%lu,\"role\":\"root\",\"layer\":0,\"fw\":\"" FW_VERSION "\","
         "\"frames_ok\":%u,\"frames_drop\":%u,\"chunks\":%u,\"chunk_err\":%u,"
         "\"heap_free\":%u,\"psram_free\":%u,\"uart_drop\":%u,"
+        "\"uart_defer\":%u,\"log_drop\":%u,"
         "\"node_count\":%u,\"node_ids\":[",
         (unsigned long)millis(),
         (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
         (unsigned)chunk_errors,
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(), (unsigned)uart_drop,
+        (unsigned)uart_defer, (unsigned)log_drop,
         (unsigned)node_n);
 
     if (pos < 0) pos = 0;
@@ -862,8 +906,6 @@ static void send_telemetry_frame() {
         json_appendf(json, sizeof(json), pos,
             ",\"lat_avg_ms\":null,\"lat_min_ms\":null,\"lat_max_ms\":null,\"lat_n\":0,\"lat_by_node\":{}");
     }
-
-    lat_sum_us = 0; lat_n = 0; lat_node_count = 0;
 
     /* "tree": nguyên văn mesh.asNodeTree().toString() (= subConnectionJson()),
      * dạng {"nodeId":N,"root":true,"subs":[{"nodeId":M,"subs":[...]}]} */
@@ -909,11 +951,19 @@ static void send_telemetry_frame() {
 
     if (pos >= (int)sizeof(json) - 1) {
         DBGF("[TELE] JSON telemetry vuot %u byte, bo khung nay", (unsigned)sizeof(json));
-        return;
+        tele_deferred = false;
+        return true;
     }
 
-    send_uart_frame(FRAME_TYPE_TELEMETRY, (const uint8_t*)json, (size_t)pos);
-    heal_n = 0;   // đã gửi → xóa, mỗi heal event chỉ xuất hiện trong 1 khung
+    tele_last_len = (uint32_t)pos;
+    if (!send_uart_frame(FRAME_TYPE_TELEMETRY, (const uint8_t*)json, (size_t)pos)) {
+        if (!tele_deferred) { uart_defer++; tele_deferred = true; }
+        return false;   // hoãn: heal_events/latency giữ nguyên cho lần dựng sau
+    }
+    tele_deferred = false;
+    heal_n = 0;   // đã ghi thật → xóa, mỗi heal event chỉ xuất hiện trong 1 khung
+    lat_sum_us = 0; lat_n = 0; lat_node_count = 0;   // mẫu latency đã gửi
+    return true;
 }
 
 /* send_image_frame(): 1 frame JPEG Root vừa ghép xong -> UART cho middleware.
@@ -1956,11 +2006,13 @@ void loop() {
 
     /* [4b] Gửi khung TELEMETRY cho middleware định kỳ (xem UART_PROTOCOL.md §4.2) */
     static uint32_t last_telemetry_time = 0;
+    static bool     telemetry_pending   = false;   // 1 khung chờ ghi (ghi đè, không xếp hàng)
     uint32_t now_telemetry = millis();
     if (now_telemetry - last_telemetry_time >= TELEMETRY_SEND_INTERVAL_MS) {
         last_telemetry_time = now_telemetry;
-        send_telemetry_frame();
+        telemetry_pending = true;
     }
+    if (telemetry_pending && send_telemetry_frame()) telemetry_pending = false;
 
     /* [4c] Phát beacon Root định kỳ để Leaf tự học root_id, dùng
      * sendSingle() thay vì sendBroadcast() cho từng chunk (xem Sửa 2) */
@@ -1975,9 +2027,10 @@ void loop() {
     uint32_t now = millis();
     if (now - last_stats_time >= 15000) {
         last_stats_time = now;
-        DBGF("[STAT] Frames OK: %d | Dropped: %d | UART drop: %u | Chunks: %d | "
+        DBGF("[STAT] Frames OK: %d | Dropped: %d | UART drop: %u | defer: %u | log_drop: %u | Chunks: %d | "
                       "Heap: %d | PSRAM: %d | Nodes: %d\n",
-                      frames_completed, frames_dropped, (unsigned)uart_drop, chunks_received,
+                      frames_completed, frames_dropped, (unsigned)uart_drop,
+                      (unsigned)uart_defer, (unsigned)log_drop, chunks_received,
                       ESP.getFreeHeap(), ESP.getFreePsram(),
                       mesh.getNodeList().size());
     }
