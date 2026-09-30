@@ -10,8 +10,10 @@
  *  3. Định kỳ chụp ảnh JPEG → cắt thành các chunk 1024 byte
  *  4. Đóng gói mỗi chunk với Header 16 byte → encode Base64
  *  5. Gửi từng chunk thẳng tới Root qua sendSingle() (học root_id
- *     qua beacon "#ROOT..." Root phát định kỳ); sendBroadcast() chỉ
- *     dùng làm fallback khi chưa biết root_id
+ *     qua beacon "#ROOT..." Root phát định kỳ). Chưa biết root_id thì
+ *     KHÔNG chụp/gửi (không broadcast ảnh — làm nghẽn mesh)
+ *  6. Watchdog: mất beacon Root quá ROOT_LOST_RESET_MS → học lại root_id;
+ *     quá ROOT_LOST_RESTART_MS → ESP.restart()
  *
  *  Phần cứng yêu cầu:
  *  ──────────────────
@@ -81,11 +83,18 @@ uint32_t chunks_sent = 0;           // Tổng số chunk đã gửi (thống kê
 uint32_t chunks_send_fail = 0;      // Tổng số chunk gửi thất bại (thống kê)
 
 /* root_id: Node ID của Root, học qua beacon ROOT_BEACON_PREFIX do Root
- * phát định kỳ (xem receivedCallback()). 0 = chưa biết → dùng
- * sendBroadcast() làm fallback trong capture_and_send(). Nếu
- * ROOT_NODE_ID_OVERRIDE khác 0 trong mesh_config.h, ép dùng ID đó và
- * không tự học qua beacon nữa. */
+ * phát định kỳ (xem receivedCallback()). 0 = chưa biết → capture_and_send()
+ * không chụp/gửi gì. Nếu ROOT_NODE_ID_OVERRIDE khác 0 trong mesh_config.h,
+ * ép dùng ID đó và không tự học qua beacon nữa. */
 uint32_t root_id = ROOT_NODE_ID_OVERRIDE;
+
+/* millis() lúc nhận beacon Root cuối; setup() đặt = lúc khởi động để watchdog
+ * vẫn restart được nếu chưa từng nhận beacon nào (xem check_root_watchdog()). */
+uint32_t last_root_beacon_ms = 0;
+
+/* esp_reset_reason() lúc khởi động — gửi trong NSTAT ("rst") để nhìn từ xa
+ * biết Leaf vừa reset vì brownout, watchdog hay ESP.restart(). */
+esp_reset_reason_t boot_reset_reason = ESP_RST_UNKNOWN;
 
 uint32_t last_nstat_time = 0;       // millis() lần gửi NSTAT cuối (xem send_nstat())
 
@@ -234,15 +243,14 @@ bool init_camera() {
  *  - Chỉ có Arduino String tạm thời bị cấp phát trên heap
  * ================================================================ */
 void capture_and_send() {
-    /* ── Bước 0: Chưa biết Root và đang một mình trong mesh ──
+    /* ── Bước 0: Chưa biết Root → không chụp, không gửi ──
      *
-     * root_id == 0 nghĩa là chưa nhận được beacon nào từ Root.
-     * Nếu đồng thời mesh.getNodeList() rỗng (không có node nào khác),
-     * chụp ảnh lúc này chỉ để rồi không gửi được đi đâu — bỏ qua
-     * SỚM, TRƯỚC esp_camera_fb_get(), để không giữ frame buffer
-     * camera vô ích (chỉ có CAM_FB_COUNT=1 buffer).
+     * root_id == 0: chưa nhận beacon Root, hoặc watchdog vừa quên Root.
+     * KHÔNG gửi ảnh bằng sendBroadcast(): mỗi chunk broadcast bị mọi node
+     * nhận và chuyển tiếp, làm nghẽn mesh đúng lúc mesh đang hồi phục.
+     * Bỏ qua SỚM, TRƯỚC esp_camera_fb_get(), để không giữ frame buffer.
      */
-    if (root_id == 0 && mesh.getNodeList().size() == 0) {
+    if (root_id == 0) {
         return;
     }
 
@@ -317,10 +325,18 @@ void capture_and_send() {
      *   b) Tính payload_len (chunk cuối có thể < 1024)
      *   c) Tạo ChunkHeader
      *   d) Serialize (header + payload) → Base64 String
-     *   e) Gửi String qua mesh.sendBroadcast()
+     *   e) Gửi String qua mesh.sendSingle() tới Root
      *   f) Delay ngắn để tránh tràn TCP buffer của Mesh
      */
+    bool aborted = false;
     for (uint16_t i = 0; i < total_chunks; i++) {
+
+        /* Root có thể vừa bị quên trong mesh.update() giữa 2 chunk
+         * (changedConnectionCallback) → bỏ phần còn lại của frame. */
+        if (root_id == 0) {
+            aborted = true;
+            break;
+        }
 
         /* a) Tính vị trí bắt đầu đọc trong JPEG buffer
          *    chunk 0: offset = 0
@@ -384,14 +400,9 @@ void capture_and_send() {
          * học được qua beacon ROOT_BEACON_PREFIX (xem receivedCallback()).
          * Tránh việc mọi chunk (broadcast) bị các Leaf khác cũng nhận,
          * cấp phát String rồi bỏ, nhân traffic không khí lên vô ích khi
-         * có nhiều Leaf.
-         *
-         * sendBroadcast(): CHỈ dùng làm fallback khi chưa học được
-         * root_id (root_id == 0) — ví dụ vài giây đầu sau khi vào mesh,
-         * trước khi nhận được beacon đầu tiên từ Root.
+         * có nhiều Leaf. Không còn fallback sendBroadcast() (xem Bước 0).
          */
-        bool sent_ok = (root_id != 0) ? mesh.sendSingle(root_id, encoded)
-                                       : mesh.sendBroadcast(encoded);
+        bool sent_ok = mesh.sendSingle(root_id, encoded);
 
         if (!sent_ok) {
             chunks_send_fail++;
@@ -447,7 +458,7 @@ void capture_and_send() {
      * frame_id cũ → tạo assembly slot mới.
      */
     frame_id_counter++;
-    frames_sent++;
+    if (!aborted) frames_sent++;
 }
 
 
@@ -507,9 +518,10 @@ void send_nstat() {
 
     int pos = snprintf(buf, sizeof(buf),
              NSTAT_PREFIX "{\"id\":%u,\"fw\":\"" FW_VERSION "\",\"rssi\":%s,"
-             "\"heap\":%u,\"frames\":%u,\"chunks_fail\":%u,\"ap_rssi\":{",
+             "\"heap\":%u,\"frames\":%u,\"chunks_fail\":%u,\"rst\":%d,\"up_s\":%u,\"ap_rssi\":{",
              (unsigned)mesh.getNodeId(), rssi_str, (unsigned)ESP.getFreeHeap(),
-             (unsigned)frames_sent, (unsigned)chunks_send_fail);
+             (unsigned)frames_sent, (unsigned)chunks_send_fail,
+             (int)boot_reset_reason, (unsigned)(millis() / 1000));
 
     wifi_sta_list_t sta_list;
     if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
@@ -539,6 +551,7 @@ void send_nstat() {
  */
 void receivedCallback(uint32_t from, String &msg) {
     if (msg.startsWith(ROOT_BEACON_PREFIX)) {
+        last_root_beacon_ms = millis();
         if (ROOT_NODE_ID_OVERRIDE == 0 && root_id != from) {
             root_id = from;
             Serial.printf("[MESH] Root ID = %u\n", root_id);
@@ -546,8 +559,7 @@ void receivedCallback(uint32_t from, String &msg) {
         return;
     }
     // Bỏ qua — Camera Node không xử lý message nhận được khác
-    // Trong mạng có nhiều Camera, broadcast từ camera khác (fallback
-    // khi chưa biết root_id) sẽ đến đây nhưng không cần xử lý.
+    // (vd chunk broadcast từ Leaf firmware cũ còn fallback broadcast).
 }
 
 /**
@@ -585,9 +597,37 @@ void changedConnectionCallback() {
 
 
 /* ================================================================
+ *  check_root_watchdog()
+ *
+ *  Gọi mỗi vòng loop(). Tính từ beacon Root cuối (hoặc lúc khởi động):
+ *   - quá ROOT_LOST_RESET_MS: quên root_id → capture_and_send() ngừng
+ *     chụp/gửi, send_nstat() ngừng; học lại khi beacon tới.
+ *   - quá ROOT_LOST_RESTART_MS: ESP.restart() — thoát trạng thái kẹt
+ *     (vd station treo, không vào lại được mesh).
+ *  ROOT_NODE_ID_OVERRIDE khác 0 → giữ root_id ép cứng, chỉ còn restart.
+ * ================================================================ */
+void check_root_watchdog() {
+    uint32_t since = millis() - last_root_beacon_ms;
+
+    if (ROOT_NODE_ID_OVERRIDE == 0 && root_id != 0 && since > ROOT_LOST_RESET_MS) {
+        root_id = 0;
+        Serial.printf("[WDT] mat beacon Root, hoc lai (%u ms khong co beacon)\n", (unsigned)since);
+    }
+
+    if (since > ROOT_LOST_RESTART_MS) {
+        Serial.printf("[WDT] restart (%u ms khong co beacon Root)\n", (unsigned)since);
+        delay(100);   // cho Serial kịp in
+        ESP.restart();
+    }
+}
+
+
+/* ================================================================
  *  SETUP — Khởi tạo một lần khi ESP32 khởi động
  * ================================================================ */
 void setup() {
+    boot_reset_reason = esp_reset_reason();
+
     /* Khởi tạo Serial để debug */
     Serial.begin(115200);
     delay(1000);  // Chờ Serial ổn định
@@ -668,6 +708,7 @@ void setup() {
     Serial.printf("[MESH] Node ID: %u\n", mesh.getNodeId());
     Serial.printf("[MESH] Mesh SSID: %s\n", MESH_SSID);
     Serial.printf("[SYS] Firmware: %s\n", FW_VERSION);
+    Serial.printf("[SYS] Ly do reset: %d\n", (int)boot_reset_reason);
     ap_map_self_check();
 
     /* ── Sẵn sàng ──────────────────────────────────────────── */
@@ -681,6 +722,7 @@ void setup() {
     Serial.println("========================================\n");
 
     last_capture_time = millis();
+    last_root_beacon_ms = millis();   // watchdog tính từ lúc khởi động nếu chưa có beacon
 }
 
 
@@ -698,6 +740,8 @@ void setup() {
 void loop() {
     /* Cập nhật Mesh — phải gọi THƯỜNG XUYÊN */
     mesh.update();
+
+    check_root_watchdog();
 
     /* Kiểm tra interval chụp ảnh */
     uint32_t now = millis();

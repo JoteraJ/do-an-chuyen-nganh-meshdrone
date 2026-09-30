@@ -181,6 +181,13 @@
 #define ROOT_BEACON_PREFIX        "#ROOT"   // '#' khong thuoc bang ma Base64 -> khong nham voi chunk
 #define ROOT_BEACON_INTERVAL_MS   2000
 #define ROOT_NODE_ID_OVERRIDE     0         // 0 = tu hoc qua beacon; khac 0 = ep dung ID nay
+
+/* Watchdog mất Root (tính từ beacon #ROOT cuối, hoặc từ lúc khởi động nếu
+ * chưa nhận lần nào):
+ *  - quá ROOT_LOST_RESET_MS   → quên root_id, ngừng chụp/gửi, chờ học lại
+ *  - quá ROOT_LOST_RESTART_MS → ESP.restart() (NSTAT sau đó báo rst = 3, SW) */
+#define ROOT_LOST_RESET_MS        8000
+#define ROOT_LOST_RESTART_MS      30000
 /* ============================================================
  *  10. PHIÊN BẢN FIRMWARE & TRẠNG THÁI NODE (NSTAT)
  *
@@ -190,13 +197,16 @@
  *
  *  Leaf gửi mỗi NSTAT_INTERVAL_MS (chỉ khi đã biết root_id) một
  *  message "#NSTAT{...}" tới Root: id, fw, rssi, heap, frames,
- *  chunks_fail, ap_rssi. '#' không thuộc Base64 → Root tách được
- *  trước khi coi message là chunk.
+ *  chunks_fail, ap_rssi, rst, up_s. '#' không thuộc Base64 → Root tách
+ *  được trước khi coi message là chunk.
+ *
+ *  rst: esp_reset_reason() lúc khởi động (1 POWERON, 3 SW = ESP.restart(),
+ *  4 PANIC, 5 INT_WDT, 6 TASK_WDT, 7 WDT khác, 9 BROWNOUT). up_s: uptime (giây).
  *
  *  ap_rssi: RSSI từng station đang nối vào AP của node này (đo
  *  phía AP, esp_wifi_ap_get_sta_list), khóa = nodeId của station.
  * ============================================================ */
-#define FW_VERSION                "2026-09-30a"
+#define FW_VERSION                "2026-09-30c"
 #define NSTAT_PREFIX              "#NSTAT"   // '#' khong thuoc bang ma Base64 -> khong nham voi chunk
 #define NSTAT_INTERVAL_MS         2000
 #define AP_RSSI_MAX               6         // so station toi da doc tu AP moi node (ap_rssi / link_rssi)
