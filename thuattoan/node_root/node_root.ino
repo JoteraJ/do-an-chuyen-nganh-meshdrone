@@ -186,6 +186,29 @@ bool ip_printed = false;
 uint32_t last_disconnect_ms = 0;
 int32_t  last_self_heal_ms  = -1;
 
+/* ── Self-healing theo luồng dữ liệu (đo mới, song song với cách cũ) ──
+ *
+ * Theo TỪNG node: bắt đầu sự cố = lúc node biến khỏi getNodeList() của Root
+ * (update_node_tracking(), gọi trong changedConnectionCallback() và mỗi
+ * TRACK_UPDATE_MS). Không bắt được (node rời rồi vào lại giữa 2 lần cập nhật,
+ * hoặc node im lặng mà không rời mesh) → mốc = last_chunk_ms nếu khoảng trống
+ * giữa 2 chunk > SILENT_NODE_MS. Kết thúc = chunk hợp lệ đầu tiên sau sự cố.
+ * Giữ tối đa HEAL_EVENTS_MAX sự kiện gần nhất; mỗi sự kiện chỉ gửi trong MỘT
+ * khung telemetry rồi xóa, để dashboard không đếm trùng. */
+#define HEAL_EVENTS_MAX   8
+#define HEAL_SRC_NONE       0
+#define HEAL_SRC_LIST       1   // "list": node biến khỏi getNodeList()
+#define HEAL_SRC_LAST_CHUNK 2   // "last_chunk": không thấy node rời mesh, lấy chunk cuối
+
+struct HealEvent {
+    uint32_t id;
+    uint32_t ms;     // chunk hợp lệ đầu tiên − mốc bắt đầu
+    uint32_t ts;     // millis() của Root lúc đo xong (cùng thang với "ts" telemetry)
+    uint8_t  src;    // HEAL_SRC_LIST / HEAL_SRC_LAST_CHUNK
+};
+HealEvent heal_events[HEAL_EVENTS_MAX];
+uint8_t   heal_n = 0;
+
 /* ── Latency chụp (Leaf) → ghép xong (Root) ─────────────────
  *
  * latency_us = mesh.getNodeTime() lúc ghép xong − capture_us trong header.
@@ -260,6 +283,8 @@ struct NodeTrack {
     uint32_t seen_ms;        // millis() lúc node (lại) xuất hiện trong getNodeList()
     bool     in_list;        // có trong getNodeList() ở lần cập nhật gần nhất
     bool     silent;
+    uint8_t  heal_src;       // HEAL_SRC_NONE = không có sự cố đang chờ đo
+    uint32_t heal_start_ms;  // mốc bắt đầu sự cố (millis())
 };
 NodeTrack node_track[TRACK_MAX_NODES];
 uint32_t  silent_events = 0;    // số lần một node chuyển sang im lặng (từ lúc khởi động)
@@ -625,10 +650,29 @@ static NodeTrack* track_find(uint32_t id, bool create) {
     return t;
 }
 
-/* on_valid_chunk(): gọi cho mỗi chunk đã qua validate header. */
+static void push_heal_event(uint32_t id, uint32_t ms, uint8_t src, uint32_t now) {
+    if (heal_n >= HEAL_EVENTS_MAX) {   // đầy → bỏ sự kiện cũ nhất
+        memmove(&heal_events[0], &heal_events[1], sizeof(HealEvent) * (HEAL_EVENTS_MAX - 1));
+        heal_n = HEAL_EVENTS_MAX - 1;
+    }
+    heal_events[heal_n++] = { id, ms, now, src };
+    DBGF("[HEAL] node %u co chunk lai sau %u ms (moc: %s)", (unsigned)id, (unsigned)ms,
+         src == HEAL_SRC_LIST ? "list" : "last_chunk");
+}
+
+/* on_valid_chunk(): gọi cho mỗi chunk đã qua validate header. Chunk đầu tiên
+ * sau sự cố (xem khối "Self-healing theo luồng dữ liệu") → ghi 1 heal event. */
 static void on_valid_chunk(uint32_t id) {
     NodeTrack* t = track_find(id, true);
     uint32_t now = millis();
+    if (t->heal_src == HEAL_SRC_NONE && t->last_chunk_ms != 0 && now - t->last_chunk_ms > SILENT_NODE_MS) {
+        t->heal_src = HEAL_SRC_LAST_CHUNK;
+        t->heal_start_ms = t->last_chunk_ms;
+    }
+    if (t->heal_src != HEAL_SRC_NONE) {
+        push_heal_event(id, now - t->heal_start_ms, t->heal_src, now);
+        t->heal_src = HEAL_SRC_NONE;
+    }
     t->last_chunk_ms = now ? now : 1;
     t->silent = false;
 }
@@ -697,6 +741,10 @@ static void update_node_tracking() {
             if (ids[j] == t.id) { in_now = true; break; }
         }
         if (in_now && !t.in_list) t.seen_ms = now;   // vào (lại) mesh
+        if (!in_now && t.in_list && t.heal_src == HEAL_SRC_NONE) {
+            t.heal_src = HEAL_SRC_LIST;               // rời mesh: mốc bắt đầu sự cố
+            t.heal_start_ms = now;
+        }
         t.in_list = in_now;
     }
     for (uint8_t j = 0; j < n; j++) {
@@ -743,11 +791,11 @@ static void check_heap_guard() {
 /* send_telemetry_frame(): xem cấu trúc JSON trong UART_PROTOCOL.md §4.2.
  * Gọi định kỳ mỗi TELEMETRY_SEND_INTERVAL_MS từ loop().
  *
- * Kích thước: ~550 byte trường cũ + ~40 byte/node trong "tree" + ~125
- * byte/node trong "nodes". 16 node (TREE_MAX_NODES) ≈ 3,2KB < 4096 —
- * vẫn rất xa giới hạn khung UART (131072, UART_PROTOCOL.md §3). Buffer
- * static để không chiếm stack của loopTask. Nếu vẫn bị cắt, bỏ khung
- * thay vì gửi JSON hỏng. */
+ * Kích thước (giá trị xấu nhất: ID 10 chữ số, 8 heal_events): 3 node ≈ 1,9KB,
+ * 4 node ≈ 2,2KB, 8 node ≈ 3,3KB < 4096; từ ~11 node trở lên sẽ vượt. Vẫn rất
+ * xa giới hạn khung UART (131072, UART_PROTOCOL.md §3). Buffer static để không
+ * chiếm stack của loopTask. Nếu bị cắt, bỏ khung thay vì gửi JSON hỏng
+ * (heal_events chưa gửi được giữ lại cho khung sau). */
 static void send_telemetry_frame() {
     uint32_t node_ids[TREE_MAX_NODES];
     uint8_t  node_n = collect_node_ids(node_ids, TREE_MAX_NODES);
@@ -771,6 +819,15 @@ static void send_telemetry_frame() {
     }
     json_appendf(json, sizeof(json), pos, "],\"last_self_heal_ms\":%ld", (long)last_self_heal_ms);
     json_appendf(json, sizeof(json), pos, ",\"silent_events\":%u", (unsigned)silent_events);
+
+    /* "heal_events": self-healing theo luồng dữ liệu, chỉ các sự kiện CHƯA gửi */
+    json_appendf(json, sizeof(json), pos, ",\"heal_events\":[");
+    for (uint8_t i = 0; i < heal_n; i++) {
+        json_appendf(json, sizeof(json), pos, "%s{\"id\":%u,\"ms\":%u,\"start_src\":\"%s\",\"ts\":%u}",
+            i ? "," : "", (unsigned)heal_events[i].id, (unsigned)heal_events[i].ms,
+            heal_events[i].src == HEAL_SRC_LIST ? "list" : "last_chunk", (unsigned)heal_events[i].ts);
+    }
+    json_appendf(json, sizeof(json), pos, "]");
 
     /* Latency của chu kỳ vừa qua. Không có mẫu → lat_n = 0, các giá trị là
      * null (không gửi số giả). */
@@ -839,6 +896,7 @@ static void send_telemetry_frame() {
     }
 
     send_uart_frame(FRAME_TYPE_TELEMETRY, (const uint8_t*)json, (size_t)pos);
+    heal_n = 0;   // đã gửi → xóa, mỗi heal event chỉ xuất hiện trong 1 khung
 }
 
 /* send_image_frame(): 1 frame JPEG Root vừa ghép xong -> UART cho middleware.

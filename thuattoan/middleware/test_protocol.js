@@ -130,6 +130,49 @@ function test7_bogusHugeLen() {
   return inKetQua('Test 7: LEN giả mạo khổng lồ không làm kẹt parser', ok);
 }
 
+// ---------------------------------------------------------------
+// Test 8: TELEMETRY có các trường mới (Root 2026-09-30d, nhánh feature/on-dinh):
+// silent_events, heal_events, uart_drop, nodes[].last_chunk_age_ms/silent/rst/up_s
+// (kể cả giá trị null của node firmware cũ). Khung bị cắt vụn vẫn ghép đúng và
+// JSON parse ra đủ trường.
+// ---------------------------------------------------------------
+function test8_telemetryNewFields() {
+  const parser = new FrameParser();
+  const telemetry = {
+    ts: 123456, role: 'root', layer: 0, fw: '2026-09-30d',
+    frames_ok: 42, frames_drop: 3, chunks: 610, chunk_err: 0,
+    heap_free: 98304, psram_free: 0, uart_drop: 2,
+    node_count: 3, node_ids: [1207433521, 1207449329, 1207369673],
+    last_self_heal_ms: 842, silent_events: 1,
+    heal_events: [{ id: 1207369673, ms: 4120, start_src: 'list', ts: 123400 },
+                  { id: 1207449329, ms: 11020, start_src: 'last_chunk', ts: 123410 }],
+    lat_avg_ms: 177.2, lat_min_ms: 90.1, lat_max_ms: 402.5, lat_n: 9, lat_by_node: { 1207433521: 96.5 },
+    tree: { nodeId: 2846999225, root: true, subs: [{ nodeId: 1207433521, subs: [{ nodeId: 1207369673 }] }, { nodeId: 1207449329 }] },
+    nodes: [
+      { id: 1207433521, fw: '2026-09-30c', rssi: -58, heap: 101234, link_rssi: -61, link_rssi_src: 'ap_parent', hop: 1,
+        last_chunk_age_ms: 240, silent: false, rst: 1, up_s: 3605, age_ms: 820 },
+      { id: 1207369673, fw: '2026-09-30c', rssi: -77, heap: 99876, link_rssi: -79, link_rssi_src: 'ap_parent', hop: 2,
+        last_chunk_age_ms: 12450, silent: true, rst: 9, up_s: 41, age_ms: 1430 },
+      { id: 1207449329, fw: null, rssi: null, heap: null, link_rssi: -70, link_rssi_src: 'ap_parent', hop: 1,
+        last_chunk_age_ms: null, silent: false, rst: null, up_s: null, age_ms: null },
+    ],
+  };
+  const full = encodeFrame(FRAME_TYPE.TELEMETRY, Buffer.from(JSON.stringify(telemetry), 'utf8'));
+  let frames = [];
+  for (let off = 0; off < full.length; off += 13) frames = frames.concat(parser.push(full.slice(off, off + 13)));
+  let t = null;
+  try { t = frames.length === 1 ? JSON.parse(frames[0].payload.toString('utf8')) : null; } catch (e) { t = null; }
+  const ok = !!t && frames[0].type === FRAME_TYPE.TELEMETRY &&
+    t.uart_drop === 2 && t.silent_events === 1 &&
+    Array.isArray(t.heal_events) && t.heal_events.length === 2 &&
+    t.heal_events[0].start_src === 'list' && t.heal_events[1].ms === 11020 &&
+    t.nodes[1].silent === true && t.nodes[1].rst === 9 && t.nodes[1].up_s === 41 &&
+    t.nodes[2].rst === null && t.nodes[2].last_chunk_age_ms === null &&
+    !t.node_ids.includes(t.tree.nodeId);
+  return inKetQua('Test 8: TELEMETRY có trường mới (heal_events, silent, rst, up_s, uart_drop)', ok,
+    `payload ${full.length - 9} byte`);
+}
+
 const results = [
   test1_crcKnownVector(),
   test2_singleFrame(),
@@ -138,6 +181,7 @@ const results = [
   test5_garbageBetweenFrames(),
   test6_corruptedCrcThenRecover(),
   test7_bogusHugeLen(),
+  test8_telemetryNewFields(),
 ];
 
 console.log('\n' + '='.repeat(60));

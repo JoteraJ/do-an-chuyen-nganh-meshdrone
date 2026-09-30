@@ -107,6 +107,8 @@ ví dụ:
   "node_count": 3,
   "node_ids": [111, 222, 333],
   "last_self_heal_ms": 842,
+  "silent_events": 1,
+  "heal_events": [ { "id": 333, "ms": 4120, "start_src": "list", "ts": 123400 } ],
   "lat_avg_ms": 412.3,
   "lat_min_ms": 305.0,
   "lat_max_ms": 580.2,
@@ -118,18 +120,44 @@ ví dụ:
     { "nodeId": 111, "subs": [ { "nodeId": 333 } ] },
     { "nodeId": 222 } ] },
   "nodes": [
-    { "id": 111, "fw": "2026-09-30a", "rssi": -58, "heap": 101234, "link_rssi": -61, "link_rssi_src": "ap_parent",  "hop": 1, "age_ms": 820 },
-    { "id": 333, "fw": "2026-09-30a", "rssi": -77, "heap": 99876,  "link_rssi": -79, "link_rssi_src": "ap_parent",  "hop": 2, "age_ms": 1430 },
-    { "id": 222, "fw": null, "rssi": null, "heap": null, "link_rssi": -70, "link_rssi_src": "ap_parent", "hop": 1, "age_ms": null }
+    { "id": 111, "fw": "2026-09-30c", "rssi": -58, "heap": 101234, "link_rssi": -61, "link_rssi_src": "ap_parent",  "hop": 1,
+      "last_chunk_age_ms": 240, "silent": false, "rst": 1, "up_s": 3605, "age_ms": 820 },
+    { "id": 333, "fw": "2026-09-30c", "rssi": -77, "heap": 99876,  "link_rssi": -79, "link_rssi_src": "ap_parent",  "hop": 2,
+      "last_chunk_age_ms": 12450, "silent": true, "rst": 9, "up_s": 41, "age_ms": 1430 },
+    { "id": 222, "fw": null, "rssi": null, "heap": null, "link_rssi": -70, "link_rssi_src": "ap_parent", "hop": 1,
+      "last_chunk_age_ms": null, "silent": false, "rst": null, "up_s": null, "age_ms": null }
   ]
 }
 ```
 
-`last_self_heal_ms`: thời gian (ms) giữa lúc mất kết nối tới một node con
-(`onDroppedConnection`) và lúc mạng có kết nối trở lại
-(`onNewConnection`/`changedConnection`) gần nhất — đây chính là số liệu
-"self-healing" hội đồng sẽ hỏi (câu hỏi dự kiến #3 trong tài liệu đồ án).
+Mọi trường thêm sau bản 2026-09-29 đều **tùy chọn**: bên nhận phải chịu được khi
+thiếu trường (Root/Leaf firmware cũ) hoặc giá trị `null`.
+
+`node_count` / `node_ids`: các node trong mesh nhìn từ Root, **không gồm Root** và
+không trùng lặp (Root firmware từ 2026-09-30d lọc cả trường hợp Root vọng lại trong
+nhánh con do vòng liên kết — lỗi test12).
+
+`last_self_heal_ms` (cách đo cũ, giữ để so sánh): thời gian (ms) giữa lúc mất kết
+nối tới một node con (`onDroppedConnection`) và lần `changedConnection` kế tiếp
+trên Root. Không phân biệt node, không biết node đã gửi lại dữ liệu hay chưa.
 `-1` nghĩa là chưa từng xảy ra sự kiện rớt kết nối nào.
+
+`heal_events` (cách đo mới, theo luồng dữ liệu, từng node): mảng tối đa 8 sự kiện
+gần nhất **chưa gửi**; mỗi sự kiện chỉ xuất hiện trong đúng một khung telemetry rồi
+Root xóa, nên dashboard cộng dồn được mà không đếm trùng (vẫn nên lọc trùng theo
+`id` + `ts` vì middleware gửi lại telemetry cuối cho client mới nối). Mỗi phần tử:
+- `id`: nodeId của node vừa hồi phục.
+- `ms`: từ lúc bắt đầu sự cố tới **chunk hợp lệ đầu tiên** Root nhận từ node đó sau sự cố.
+- `start_src`: nguồn mốc bắt đầu. `"list"` = lúc node biến khỏi `getNodeList()` của
+  Root (Root đối chiếu trong `changedConnectionCallback()` và mỗi 500 ms).
+  `"last_chunk"` = không thấy node rời mesh (rời rồi vào lại giữa 2 lần đối chiếu,
+  hoặc node im lặng mà vẫn trong mesh) nhưng khoảng trống giữa 2 chunk > 10 s → mốc
+  là chunk cuối trước khoảng trống.
+- `ts`: `millis()` của Root lúc đo xong (cùng thang với `ts` của telemetry).
+Không có sự kiện mới: `[]`.
+
+`silent_events`: số lần (từ lúc Root khởi động) một node chuyển sang trạng thái
+`silent` (xem `nodes`).
 
 `lat_*`: latency từ lúc Leaf chụp xong (`capture_us` trong ChunkHeader, lấy
 `mesh.getNodeTime()` ngay sau `esp_camera_fb_get()`) tới lúc Root ghép xong frame
@@ -152,6 +180,21 @@ cây (nối thẳng Root = 1). `fw`/`rssi`/`heap`/`age_ms` lấy từ message
 lần nhận NSTAT cuối. Node chưa từng gửi NSTAT (firmware cũ): `fw`, `rssi`, `heap`,
 `age_ms` = `null`. `rssi` là `WiFi.RSSI()` của liên kết STA từ Leaf lên node cha
 (`null` nếu Leaf không có liên kết STA).
+
+`last_chunk_age_ms`: thời gian từ chunk hợp lệ cuối Root nhận của node đó (`null` =
+chưa nhận chunk nào từ lúc Root khởi động). `silent`: `true` nếu node còn trong
+`getNodeList()` nhưng quá `SILENT_NODE_MS` (10 s) không có chunk, tính từ chunk cuối
+hoặc từ lúc node (vào lại) mesh. Root chỉ báo, **không** restart vì node im lặng
+(Leaf có watchdog riêng: mất beacon `#ROOT` 8 s → học lại Root, 30 s → `ESP.restart()`).
+
+`rst`, `up_s`: lấy từ `#NSTAT` gần nhất của Leaf (Leaf firmware từ 2026-09-30c).
+`rst` = `esp_reset_reason()` lúc Leaf khởi động (ESP-IDF 4.4, core 2.0.17): 1
+`POWERON`, 3 `SW` (`ESP.restart()`, vd watchdog mất Root), 4 `PANIC`, 5 `INT_WDT`,
+6 `TASK_WDT`, 7 `WDT`, 9 `BROWNOUT`. `up_s` = uptime của Leaf (giây) lúc gửi NSTAT
+đó. Leaf firmware cũ: cả hai là `null`.
+
+Message `#NSTAT{...}` Leaf gửi (Leaf → Root qua mesh, không đi qua UART):
+`{"id":..,"fw":"..","rssi":..,"heap":..,"frames":..,"chunks_fail":..,"rst":..,"up_s":..,"ap_rssi":{..}}`.
 
 `link_rssi`: RSSI (dBm) của liên kết nối node đó với node cha trong `tree`;
 `link_rssi_src` cho biết số đo lấy từ đâu. Mỗi liên kết painlessMesh là station
