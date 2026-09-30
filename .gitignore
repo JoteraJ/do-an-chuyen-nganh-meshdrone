@@ -1,4 +1,5 @@
-thuattoan/middleware/node_modules/
+middleware/node_modules/
 desktop.ini
-thuattoan/**/secrets.h
+firmware/**/secrets.h
+**/esp_idf_migration/*/build/
 đăng kí nghiên cứu khoa học/
