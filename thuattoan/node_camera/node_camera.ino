@@ -98,6 +98,17 @@ esp_reset_reason_t boot_reset_reason = ESP_RST_UNKNOWN;
 
 uint32_t last_nstat_time = 0;       // millis() lần gửi NSTAT cuối (xem send_nstat())
 
+#if STAGGER_ENABLE
+/* Staggering (mesh_config.h mục 11): lịch chụp theo đồng hồ mesh. */
+struct StaggerSlot { uint32_t node_id; uint8_t slot; };
+static const StaggerSlot STAGGER_TABLE[] = STAGGER_SLOT_TABLE;
+static const uint32_t    STAGGER_PERIOD_US = (uint32_t)CAPTURE_INTERVAL_MS * 1000UL;
+
+uint8_t  stagger_slot      = 0;
+uint32_t stagger_offset_us = 0;     // slot × P / STAGGER_SLOTS
+uint32_t next_capture_us   = 0;     // mốc đồng hồ mesh (µs) của lần chụp kế tiếp
+#endif
+
 /* ================================================================
  *  KHỞI TẠO CAMERA OV3660
  *
@@ -596,6 +607,41 @@ void changedConnectionCallback() {
 }
 
 
+#if STAGGER_ENABLE
+static uint8_t stagger_slot_of(uint32_t id) {
+    for (const StaggerSlot& e : STAGGER_TABLE) {
+        if (e.node_id == id) return e.slot % STAGGER_SLOTS;
+    }
+    return (uint8_t)(id % STAGGER_SLOTS);
+}
+
+/* stagger_next_mark(): mốc chụp đầu tiên SAU t (t' > t, t' ≡ offset mod P).
+ * Tính trên uint32 như getNodeTime(): đồng hồ mesh quay vòng sau 2^32 µs
+ * (~71,6 phút). 2^32 không chia hết cho P nên lưới mốc lệch một lần mỗi vòng,
+ * nhưng mọi node quay vòng cùng lúc nên vẫn cùng một lưới. */
+static uint32_t stagger_next_mark(uint32_t t) {
+    uint32_t ph = (uint32_t)(((uint64_t)t + STAGGER_PERIOD_US - stagger_offset_us) % STAGGER_PERIOD_US);
+    return t + (STAGGER_PERIOD_US - ph);
+}
+
+/* stagger_due(): đã tới lúc chụp chưa. d = t − next_capture_us (có dấu, nên
+ * quay vòng uint32 không làm sai phép so sánh):
+ *   0 ≤ d        → tới mốc (d > P: đồng hồ mesh nhảy tới / loop bị chặn lâu)
+ *   d < −P       → mốc ở xa hơn 1 chu kỳ phía trước: đồng hồ mesh vừa LÙI
+ *                  (mesh chỉnh giờ, vd lúc mới vào mesh) → chụp ngay.
+ * Sau mỗi lần chụp, loop() đặt lại next_capture_us = mốc kế tiếp tính từ
+ * THỜI ĐIỂM HIỆN TẠI → nhảy giờ chỉ gây 1 lần chụp lệch lịch, không chụp dồn. */
+static bool stagger_due() {
+    int32_t d = (int32_t)(mesh.getNodeTime() - next_capture_us);
+    if (d >= 0 && d <= (int32_t)STAGGER_PERIOD_US) return true;
+    if (d > (int32_t)STAGGER_PERIOD_US || d < -(int32_t)STAGGER_PERIOD_US) {
+        Serial.printf("[STAG] dong ho mesh lech lich %ld us, chup ngay 1 lan roi bam lich moi\n", (long)d);
+        return true;
+    }
+    return false;
+}
+#endif
+
 /* ================================================================
  *  check_root_watchdog()
  *
@@ -710,6 +756,14 @@ void setup() {
     Serial.printf("[SYS] Firmware: %s\n", FW_VERSION);
     Serial.printf("[SYS] Ly do reset: %d\n", (int)boot_reset_reason);
     ap_map_self_check();
+#if STAGGER_ENABLE
+    stagger_slot      = stagger_slot_of(mesh.getNodeId());
+    stagger_offset_us = (uint32_t)stagger_slot * (STAGGER_PERIOD_US / STAGGER_SLOTS);
+    Serial.printf("[STAG] BAT: slot %u/%u, lech %u ms trong chu ky %u ms (dong ho mesh)\n",
+                  stagger_slot, STAGGER_SLOTS, (unsigned)(stagger_offset_us / 1000), CAPTURE_INTERVAL_MS);
+#else
+    Serial.println("[STAG] TAT: chup theo millis() rieng tung board");
+#endif
 
     /* ── Sẵn sàng ──────────────────────────────────────────── */
     Serial.println();
@@ -723,6 +777,9 @@ void setup() {
 
     last_capture_time = millis();
     last_root_beacon_ms = millis();   // watchdog tính từ lúc khởi động nếu chưa có beacon
+#if STAGGER_ENABLE
+    next_capture_us = stagger_next_mark(mesh.getNodeTime());
+#endif
 }
 
 
@@ -743,11 +800,20 @@ void loop() {
 
     check_root_watchdog();
 
-    /* Kiểm tra interval chụp ảnh */
+    /* Kiểm tra lịch chụp ảnh */
     uint32_t now = millis();
-    if (now - last_capture_time >= CAPTURE_INTERVAL_MS) {
+#if STAGGER_ENABLE
+    bool capture_due = stagger_due();                                  // đồng hồ mesh + slot
+#else
+    bool capture_due = (now - last_capture_time >= CAPTURE_INTERVAL_MS); // millis() riêng board
+#endif
+    if (capture_due) {
         last_capture_time = now;
         capture_and_send();
+#if STAGGER_ENABLE
+        // Mốc kế tiếp tính từ SAU khi gửi xong: gửi lâu quá 1 chu kỳ thì bỏ mốc, không chụp dồn
+        next_capture_us = stagger_next_mark(mesh.getNodeTime());
+#endif
 
         /* In thống kê định kỳ (mỗi 10 frame) */
         if (frames_sent > 0 && frames_sent % 10 == 0) {

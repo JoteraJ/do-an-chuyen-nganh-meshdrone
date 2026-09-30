@@ -211,4 +211,21 @@
 #define NSTAT_INTERVAL_MS         2000
 #define AP_RSSI_MAX               6         // so station toi da doc tu AP moi node (ap_rssi / link_rssi)
 
+/* ============================================================
+ *  11. STAGGERING — LỆCH PHA LỊCH CHỤP GIỮA CÁC LEAF
+ *
+ *  STAGGER_ENABLE 1: chụp theo đồng hồ mesh (mesh.getNodeTime(), µs,
+ *  painlessMesh tự đồng bộ giữa các node), tại các mốc
+ *      k × P + slot × (P / STAGGER_SLOTS),   P = CAPTURE_INTERVAL_MS × 1000
+ *  → các Leaf không bắt đầu gửi chunk cùng lúc.
+ *  STAGGER_ENABLE 0: lịch cũ theo millis() riêng từng board (đo A/B).
+ *
+ *  Slot gán cố định theo nodeId (STAGGER_SLOT_TABLE). KHÔNG dùng
+ *  node_id % 3: 1207369673 và 1207449329 cùng ra 2. Node không có
+ *  trong bảng → node_id % STAGGER_SLOTS.
+ * ============================================================ */
+#define STAGGER_ENABLE            1
+#define STAGGER_SLOTS             3
+#define STAGGER_SLOT_TABLE        { { 1207433521UL, 0 }, { 1207449329UL, 1 }, { 1207369673UL, 2 } }
+
 #endif // MESH_CONFIG_H
