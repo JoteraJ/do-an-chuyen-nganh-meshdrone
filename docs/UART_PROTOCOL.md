@@ -105,6 +105,13 @@ ví dụ:
   "heap_free": 123456,
   "psram_free": 234567,
   "uart_drop": 0,
+  "uart_defer": 0,
+  "log_drop": 0,
+  "late_chunk_drop": 1,
+  "loop_max_ms": 38,
+  "heap_min_win": 90112,
+  "heap_min_boot": 71680,
+  "rx_q": null,
   "node_count": 3,
   "node_ids": [111, 222, 333],
   "last_self_heal_ms": 842,
@@ -122,11 +129,11 @@ ví dụ:
     { "nodeId": 222 } ] },
   "nodes": [
     { "id": 111, "fw": "2026-09-30c", "rssi": -58, "heap": 101234, "link_rssi": -61, "link_rssi_src": "ap_parent",  "hop": 1,
-      "last_chunk_age_ms": 240, "silent": false, "rst": 1, "up_s": 3605, "age_ms": 820 },
+      "last_chunk_age_ms": 240, "silent": false, "rst": 1, "up_s": 3605, "stg": 1, "age_ms": 820 },
     { "id": 333, "fw": "2026-09-30c", "rssi": -77, "heap": 99876,  "link_rssi": -79, "link_rssi_src": "ap_parent",  "hop": 2,
-      "last_chunk_age_ms": 12450, "silent": true, "rst": 9, "up_s": 41, "age_ms": 1430 },
+      "last_chunk_age_ms": 12450, "silent": true, "rst": 9, "up_s": 41, "stg": null, "age_ms": 1430 },
     { "id": 222, "fw": null, "rssi": null, "heap": null, "link_rssi": -70, "link_rssi_src": "ap_parent", "hop": 1,
-      "last_chunk_age_ms": null, "silent": false, "rst": null, "up_s": null, "age_ms": null }
+      "last_chunk_age_ms": null, "silent": false, "rst": null, "up_s": null, "stg": null, "age_ms": null }
   ]
 }
 ```
@@ -170,8 +177,34 @@ Khóa của `lat_by_node` là node_id dạng chuỗi (JSON bắt buộc khóa l�
 `uart_drop`: số frame ảnh Root đã ghép xong nhưng **không** ghi ra UART vì TX
 buffer (`Serial.setTxBufferSize(8192)`, `UART_TX_BUFFER_SIZE`) còn trống dưới một
 nửa — frame trước chưa ra hết dây. Root bỏ frame ảnh thay vì chặn `loop()` (chặn
-lâu làm `mesh.update()` trễ). Khung TELEMETRY và LOG không bao giờ bị bỏ. Frame bị
-bỏ ở đây vẫn được tính trong `frames_ok` (đã ghép xong).
+lâu làm `mesh.update()` trễ). Frame bị bỏ ở đây vẫn được tính trong `frames_ok`
+(đã ghép xong).
+
+Từ Root firmware 2026-10-01a, TELEMETRY và LOG cũng không chặn `loop()`: chỉ ghi
+khi TX buffer đủ chỗ cho **cả khung** (kèm dự phòng cho header item của ring buffer
+UART: cần `khung + min(khung, 2048) + 128` byte trống); không đủ thì không ghi byte
+nào. Không có TX buffer (`setTxBufferSize` thất bại) hoặc khung lớn hơn khả năng
+buffer → ghi chặn như cũ.
+- `uart_defer` (tích luỹ): số khung TELEMETRY phải hoãn (đếm 1 lần mỗi khung). Khung
+  hoãn được dựng lại với số liệu MỚI NHẤT ở vòng `loop()` sau (không xếp hàng);
+  `heal_events` và mẫu `lat_*` chỉ bị xóa sau khi khung đã thật sự ghi → không mất.
+- `log_drop` (tích luỹ): số khung LOG bị bỏ vì TX buffer chưa đủ chỗ.
+
+`late_chunk_drop` (tích luỹ, Root từ 2026-10-01a): số chunk **trễ** bị bỏ — chunk tới
+khi frame của nó đã đóng (ghép xong, SUPERSEDE, TIMEOUT hoặc EVICTION). Root nhớ cho
+mỗi node frame_id mới nhất đã mở slot; chunk không có slot mà frame_id cũ hơn frame
+đó 1..16 (so sánh `int16_t`, đúng qua quay vòng 65535 → 0) hoặc đúng frame đó nhưng
+frame đã đóng, trong 2 × `REASSEMBLY_TIMEOUT_MS` (4 s) → bỏ, không mở slot mới,
+không SUPERSEDE frame đang ghép. (Trước đây chunk trễ mở lại slot cho frame cũ và
+hủy luôn frame mới đang ghép — test15: 1 chunk trễ làm mất thêm frame kế tiếp.)
+
+Đo đạc tìm nguyên nhân reset (Root từ 2026-10-01a, chỉ đo): "cửa sổ" = khoảng giữa 2
+khung TELEMETRY đã ghi thành công (~2 s), reset sau mỗi lần gửi.
+- `loop_max_ms`: vòng `loop()` lâu nhất trong cửa sổ (ms).
+- `heap_min_win`: `esp_get_free_heap_size()` thấp nhất trong cửa sổ (byte).
+- `heap_min_boot`: `ESP.getMinFreeHeap()` — heap thấp nhất từ lúc khởi động (byte).
+- `rx_q`: luôn `null` — hàng đợi nhận/gửi của painlessMesh (`BufferedConnection`)
+  là `protected`, không có API đọc độ dài.
 
 `fw`: `FW_VERSION` của Root. `chunk_err`: tổng lỗi giải mã/validate chunk tại Root
 từ lúc khởi động (log text của các lỗi này bị giới hạn 1 dòng/giây, bộ đếm thì không).
@@ -200,8 +233,12 @@ hoặc từ lúc node (vào lại) mesh. Root chỉ báo, **không** restart vì
 6 `TASK_WDT`, 7 `WDT`, 9 `BROWNOUT`. `up_s` = uptime của Leaf (giây) lúc gửi NSTAT
 đó. Leaf firmware cũ: cả hai là `null`.
 
+`stg` (Leaf từ 2026-10-01a): `STAGGER_ENABLE` của Leaf — `1` = chụp theo lịch lệch
+pha trên đồng hồ mesh, `0` = lịch cũ theo `millis()` riêng từng board; `null` = Leaf
+firmware cũ không gửi.
+
 Message `#NSTAT{...}` Leaf gửi (Leaf → Root qua mesh, không đi qua UART):
-`{"id":..,"fw":"..","rssi":..,"heap":..,"frames":..,"chunks_fail":..,"rst":..,"up_s":..,"ap_rssi":{..}}`.
+`{"id":..,"fw":"..","rssi":..,"heap":..,"frames":..,"chunks_fail":..,"rst":..,"up_s":..,"stg":0|1,"ap_rssi":{..}}`.
 
 `link_rssi`: RSSI (dBm) của liên kết nối node đó với node cha trong `tree`;
 `link_rssi_src` cho biết số đo lấy từ đâu. Mỗi liên kết painlessMesh là station
@@ -229,6 +266,16 @@ PAYLOAD là text UTF-8 thuần (1 dòng, không cần `\n` ở cuối). Middlewa
 console của PC, giữ nguyên trải nghiệm xem log như khi cắm Serial Monitor
 trực tiếp, nhưng không làm hỏng luồng nhị phân.
 
+Từ Root 2026-10-01a: khung LOG bị bỏ (đếm `log_drop`) khi TX buffer chưa đủ chỗ,
+trừ dòng lý do restart của heap guard (Root `Serial.flush()` trước khi gửi). Dòng
+khởi động đáng chú ý:
+- `[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: X / Y byte` (`HTTP_ENABLE 0`).
+- `[BOOT] WDT reset (ly do N): loop_max_ms=.. heap_cuoi=.. heap_min_win=.. stage=.. up_s=..`
+  — chỉ sau reset do watchdog (N = 5 `INT_WDT`, 6 `TASK_WDT`, 7 `WDT`); số liệu lấy từ
+  vùng `.noinit` Root ghi mỗi vòng `loop()`. `stage` = bước `loop()` đang chạy lúc bị
+  cắt: 1 `mesh.update()`, 2 dọn frame timeout, 3 theo dõi node, 4 telemetry,
+  5 beacon, 6 `[STAT]`, 7 xong vòng.
+
 ## 5. Cách middleware tách khung khỏi luồng byte
 
 1. Gom byte đến từ cổng serial vào một buffer.
@@ -242,17 +289,25 @@ trực tiếp, nhưng không làm hỏng luồng nhị phân.
    toàn bộ luồng vì 1 khung lỗi).
 6. Đúng → trả về `{ type, payload }` cho phần xử lý nghiệp vụ.
 
+Byte không thuộc khung hợp lệ (rác ở bước 2–3 và cả khung sai CRC ở bước 5) được
+middleware ghi vào `data/raw/uart_raw_YYYYMMDD_HHMMSS.log` (`middleware/raw_logger.js`,
+qua `FrameParser` `opts.onSkip`): mỗi dòng có mốc thời gian, ASCII in được giữ
+nguyên, byte khác ghi `\xNN`, ghi đĩa mỗi 1 s, xoay file ở 20 MB. Mục đích: giữ lại
+các dòng ESP32 in thẳng ra UART0 không qua khung (vd `Task watchdog got triggered`,
+log bootloader sau reset) — có thể chen giữa một khung đang gửi làm khung đó sai CRC.
+
 Cài đặt tham chiếu: `middleware/protocol.js` (`FrameParser`), có test tự động
 mô phỏng nhiễu/đứt gói tại `middleware/test_protocol.js` (cùng tinh thần với
-`mo_phong_reassembly.py` — kiểm chứng thuật toán bằng phần mềm khi chưa có
-board thật để test).
+`archive/mo_phong_reassembly.py` — kiểm chứng thuật toán bằng phần mềm khi chưa có
+board thật để test). Ghép ảnh của `node_root.ino` hiện tại được mô phỏng ở
+`firmware/tools/test_reassembly_late_chunk.py`.
 
 ## 6. Đã áp dụng ở đâu (checklist)
 
 - [x] `thuattoancatanh/shared/crc16.h` — CRC dùng chung cho Arduino
-- [x] `thuattoancatanh/node_root/node_root.ino` — gửi IMAGE_FRAME + TELEMETRY +
-      LOG qua UART 921600bps, song song với HTTP MJPEG cũ (giữ cả hai, không
-      mất tính năng nào)
+- [x] `thuattoancatanh/node_root/node_root.ino` (nay `firmware/node_root/`) — gửi
+      IMAGE_FRAME + TELEMETRY + LOG qua UART 921600bps. HTTP MJPEG cũ tắt từ
+      2026-10-01a (`HTTP_ENABLE 0` trong `mesh_config.h`, code giữ trong `#if`)
 - [x] `thuattoancatanh/middleware/` — Node.js đọc UART, giải khung, phát lại
       qua Socket.IO cho dashboard
 - [x] `thuattoancatanh/tài liệu/dashboard` (bản mới trong `middleware/public/`)
