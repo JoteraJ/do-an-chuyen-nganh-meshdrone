@@ -20,14 +20,18 @@ Hệ thống truyền ảnh JPEG liên tục từ nhiều Camera Node (ESP32 + O
 
 ```
 thuattoancatanh/
-├── shared/                     ← Thư viện dùng chung
-│   ├── mesh_config.h           ← Cấu hình Mesh, Camera, HTTP
+├── shared/                     ← Bản gốc các header dùng chung (giống hệt bản trong 2 sketch)
 │   ├── base64_util.h           ← Mã hóa/giải mã Base64
-│   └── chunk_protocol.h       ← Giao thức đóng gói chunk
-├── node_camera/                ← Firmware Camera Node
-│   └── node_camera.ino
+│   ├── chunk_protocol.h        ← Giao thức đóng gói chunk
+│   └── crc16.h                 ← CRC-16/CCITT-FALSE
+├── node_camera/                ← Firmware Camera Node (Leaf)
+│   ├── node_camera.ino
+│   └── mesh_config.h           ← Cấu hình riêng của Leaf
 ├── node_root/                  ← Firmware Root Node
-│   └── node_root.ino
+│   ├── node_root.ino
+│   ├── mesh_config.h           ← Cấu hình riêng của Root
+│   ├── secrets.example.h       ← Mẫu SSID/mật khẩu router
+│   └── secrets.h               ← Tự tạo, KHÔNG commit
 └── README.md
 ```
 
@@ -74,7 +78,7 @@ GPIO 27 (SIOC)  ────→  SCL (I2C/SCCB)
 GPIO 32 (PWDN)  ────→  PWDN (Power Down)
 ```
 
-> Nếu dùng board khác (ESP-EYE, TTGO T-Camera, M5Stack), thay đổi pin mapping trong `shared/mesh_config.h`.
+> Nếu dùng board khác (ESP-EYE, TTGO T-Camera, M5Stack), thay đổi pin mapping trong `node_camera/mesh_config.h`.
 
 ---
 
@@ -102,28 +106,32 @@ Cài đặt các thư viện sau qua **Sketch → Include Library → Manage Lib
 
 ### Bước 1: Chuẩn bị file
 
-Copy 3 file từ `shared/` vào **mỗi** thư mục sketch:
+Mỗi sketch (`node_camera/`, `node_root/`) đã có sẵn **`mesh_config.h` riêng**. Cấu hình Root và Leaf
+khác nhau có chủ đích (Root không có PSRAM, cần slot ghép ảnh; Leaf cần pin camera, lịch chụp), nên
+**không** copy `mesh_config.h` giữa hai sketch.
+
+Các header dùng chung (`chunk_protocol.h`, `crc16.h`, `base64_util.h`) đã có sẵn trong mỗi sketch.
+Khi sửa một file này, sửa bản ở `shared/` rồi copy sang cả hai sketch để 3 bản luôn giống hệt nhau:
 
 ```bash
-# Cho Camera Node
-cp shared/mesh_config.h   node_camera/
-cp shared/base64_util.h   node_camera/
-cp shared/chunk_protocol.h node_camera/
-
-# Cho Root Node
-cp shared/mesh_config.h   node_root/
-cp shared/base64_util.h   node_root/
-cp shared/chunk_protocol.h node_root/
+for f in chunk_protocol.h crc16.h base64_util.h; do
+  cp shared/$f node_camera/; cp shared/$f node_root/
+done
 ```
 
 ### Bước 2: Cấu hình WiFi (Root Node)
 
-Mở `mesh_config.h` và thay đổi:
+SSID/mật khẩu router **không** nằm trong `mesh_config.h`. Tạo `node_root/secrets.h` từ file mẫu:
 
-```cpp
+```bash
+cp node_root/secrets.example.h node_root/secrets.h
+# rồi sửa secrets.h:
 #define STATION_SSID       "TEN_WIFI_ROUTER"      // ← WiFi router của bạn
 #define STATION_PASSWORD   "MAT_KHAU_WIFI"         // ← Mật khẩu WiFi
 ```
+
+`secrets.h` đã nằm trong `.gitignore` (`thuattoan/**/secrets.h`), không commit file này.
+Nếu chưa có `secrets.h`, `mesh_config.h` dùng giá trị mẫu nên build vẫn chạy (chỉ không vào được router).
 
 ### Bước 3: Cài đặt Arduino IDE
 
@@ -227,7 +235,7 @@ Copy payload vào buffer tại offset = chunk_index × 1024
 
 ## ⚙️ Tùy chỉnh thông số
 
-Tất cả thông số có thể điều chỉnh trong `shared/mesh_config.h`:
+Các thông số nằm trong `mesh_config.h` của từng sketch (Leaf: `node_camera/`, Root: `node_root/`):
 
 | Thông số | Mặc định | Mô tả |
 |----------|----------|--------|
@@ -235,8 +243,8 @@ Tất cả thông số có thể điều chỉnh trong `shared/mesh_config.h`:
 | `CHUNK_SEND_DELAY_MS` | 20 | Delay giữa các chunk (ms) |
 | `CAM_FRAME_SIZE` | QVGA | Độ phân giải (QQVGA, QVGA, VGA) |
 | `CAM_JPEG_QUALITY` | 12 | Chất lượng JPEG (0-63, thấp=tốt) |
-| `CAPTURE_INTERVAL_MS` | 300 | Interval chụp (~3.3 FPS) |
-| `REASSEMBLY_TIMEOUT_MS` | 5000 | Timeout ghép ảnh (ms) |
+| `CAPTURE_INTERVAL_MS` | 600 | Interval chụp của Leaf (~1.7 FPS) |
+| `REASSEMBLY_TIMEOUT_MS` | 2000 | Timeout ghép ảnh ở Root (ms) |
 | `MAX_CONCURRENT_FRAMES` | 4 | Slot ghép đồng thời |
 
 ### Điều chỉnh FPS
