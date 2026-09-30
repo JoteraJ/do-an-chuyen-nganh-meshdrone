@@ -162,18 +162,18 @@ Mở `mesh_config.h` và thay đổi:
 ```
 Ảnh JPEG (ví dụ 10500 bytes)
 │
-├── Chunk #0:  [Header 12B][Payload 1024B] → offset 0
-├── Chunk #1:  [Header 12B][Payload 1024B] → offset 1024
-├── Chunk #2:  [Header 12B][Payload 1024B] → offset 2048
+├── Chunk #0:  [Header 16B][Payload 1024B] → offset 0
+├── Chunk #1:  [Header 16B][Payload 1024B] → offset 1024
+├── Chunk #2:  [Header 16B][Payload 1024B] → offset 2048
 ├── ...
-├── Chunk #9:  [Header 12B][Payload 1024B] → offset 9216
-└── Chunk #10: [Header 12B][Payload 260B]  → offset 10240 (chunk cuối)
+├── Chunk #9:  [Header 16B][Payload 1024B] → offset 9216
+└── Chunk #10: [Header 16B][Payload 260B]  → offset 10240 (chunk cuối)
 
-Mỗi packet = Header (12 bytes) + Payload (≤1024 bytes)
+Mỗi packet = Header (16 bytes) + Payload (≤1024 bytes)
            → Base64 encode → String → mesh.sendBroadcast()
 ```
 
-### Cấu trúc Header (12 bytes)
+### Cấu trúc Header (16 bytes)
 
 ```
 Offset  Size     Field          Mô tả
@@ -183,6 +183,7 @@ Offset  Size     Field          Mô tả
 6       2 bytes  chunk_index    Vị trí chunk (0-based)
 8       2 bytes  total_chunks   Tổng số chunk của ảnh
 10      2 bytes  payload_len    Kích thước payload thực tế
+12      4 bytes  capture_us     mesh.getNodeTime() lúc chụp (đo latency)
 ```
 
 ### Thuật toán ghép ảnh (Reassembly) — Root Node

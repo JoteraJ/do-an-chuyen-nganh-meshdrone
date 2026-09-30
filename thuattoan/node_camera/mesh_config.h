@@ -48,16 +48,16 @@
  *  3. CẤU HÌNH GIAO THỨC TRUYỀN CHUNK
  *
  *  Mỗi ảnh JPEG được chia thành các chunk có kích thước cố định.
- *  Mỗi chunk đi kèm một header 12 byte chứa metadata.
+ *  Mỗi chunk đi kèm một header 16 byte chứa metadata (gồm capture_us).
  *
  *  Lưu ý: painlessMesh truyền dữ liệu dạng String, nên chunk
  *  binary sẽ được encode Base64 trước khi gửi. Base64 tăng
  *  kích thước ~33%, nên message tổng cộng mỗi chunk:
- *    = ceil((12 + 1024) / 3) * 4 ≈ 1384 ký tự
+ *    = ceil((16 + 1024) / 3) * 4 = 1388 ký tự
  *  painlessMesh có thể xử lý message đến vài KB, nên vừa đủ.
  * ============================================================ */
 #define MAX_CHUNK_PAYLOAD     1024    // Payload tối đa mỗi chunk (bytes)
-#define CHUNK_HEADER_SIZE     12      // Kích thước header cố định (bytes)
+#define CHUNK_HEADER_SIZE     16      // Kích thước header cố định (bytes) — phải = sizeof(ChunkHeader)
 #define CHUNK_SEND_DELAY_MS   20      // Delay giữa các chunk (ms) — tránh tràn buffer
 
 /* ============================================================
@@ -94,7 +94,7 @@
 #define CAM_FRAME_SIZE        FRAMESIZE_QVGA   // 320×240 pixels
 #define CAM_JPEG_QUALITY      12               // Chất lượng JPEG (0-63)
 #define CAM_FB_COUNT          1                // Số frame buffer camera
-#define CAPTURE_INTERVAL_MS   300              // Interval chụp ảnh (~3.3 FPS)
+#define CAPTURE_INTERVAL_MS   600              // Interval chụp ảnh (~1.7 FPS)
 
 /* ============================================================
  *  6. PIN MAPPING — ESP32-CAM (AI-Thinker Module)
@@ -181,5 +181,24 @@
 #define ROOT_BEACON_PREFIX        "#ROOT"   // '#' khong thuoc bang ma Base64 -> khong nham voi chunk
 #define ROOT_BEACON_INTERVAL_MS   2000
 #define ROOT_NODE_ID_OVERRIDE     0         // 0 = tu hoc qua beacon; khac 0 = ep dung ID nay
+/* ============================================================
+ *  10. PHIÊN BẢN FIRMWARE & TRẠNG THÁI NODE (NSTAT)
+ *
+ *  FW_VERSION: đổi mỗi lần nạp bản mới để dashboard biết board
+ *  nào còn chạy firmware cũ. Leaf gửi kèm trong NSTAT; Root in
+ *  ra lúc khởi động.
+ *
+ *  Leaf gửi mỗi NSTAT_INTERVAL_MS (chỉ khi đã biết root_id) một
+ *  message "#NSTAT{...}" tới Root: id, fw, rssi, heap, frames,
+ *  chunks_fail, ap_rssi. '#' không thuộc Base64 → Root tách được
+ *  trước khi coi message là chunk.
+ *
+ *  ap_rssi: RSSI từng station đang nối vào AP của node này (đo
+ *  phía AP, esp_wifi_ap_get_sta_list), khóa = nodeId của station.
+ * ============================================================ */
+#define FW_VERSION                "2026-09-30a"
+#define NSTAT_PREFIX              "#NSTAT"   // '#' khong thuoc bang ma Base64 -> khong nham voi chunk
+#define NSTAT_INTERVAL_MS         2000
+#define AP_RSSI_MAX               6         // so station toi da doc tu AP moi node (ap_rssi / link_rssi)
 
 #endif // MESH_CONFIG_H

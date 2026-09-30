@@ -8,7 +8,7 @@
  *  1. Khởi tạo camera OV3660 ở chế độ JPEG, độ phân giải QVGA
  *  2. Kết nối vào mạng painlessMesh
  *  3. Định kỳ chụp ảnh JPEG → cắt thành các chunk 1024 byte
- *  4. Đóng gói mỗi chunk với Header 12 byte → encode Base64
+ *  4. Đóng gói mỗi chunk với Header 16 byte → encode Base64
  *  5. Gửi từng chunk thẳng tới Root qua sendSingle() (học root_id
  *     qua beacon "#ROOT..." Root phát định kỳ); sendBroadcast() chỉ
  *     dùng làm fallback khi chưa biết root_id
@@ -38,6 +38,8 @@
  */
 
 #include <painlessMesh.h>
+#include <WiFi.h>
+#include <esp_wifi.h>
 #include "esp_camera.h"
 
 /* ────────────────────────────────────────────────────────────
@@ -84,6 +86,8 @@ uint32_t chunks_send_fail = 0;      // Tổng số chunk gửi thất bại (th�
  * ROOT_NODE_ID_OVERRIDE khác 0 trong mesh_config.h, ép dùng ID đó và
  * không tự học qua beacon nữa. */
 uint32_t root_id = ROOT_NODE_ID_OVERRIDE;
+
+uint32_t last_nstat_time = 0;       // millis() lần gửi NSTAT cuối (xem send_nstat())
 
 /* ================================================================
  *  KHỞI TẠO CAMERA OV3660
@@ -260,6 +264,12 @@ void capture_and_send() {
         return;
     }
 
+    /* Mốc thời gian chụp theo đồng hồ mesh (µs, painlessMesh tự đồng bộ
+     * giữa các node) — lấy ĐÚNG MỘT LẦN, gán cho mọi chunk của frame để
+     * Root tính latency chụp → ghép xong. Không dùng millis(): mỗi board
+     * có millis() riêng, không so sánh được giữa hai board. */
+    uint32_t capture_us = mesh.getNodeTime();
+
     /* ── Bước 2: Validate dữ liệu JPEG ─────────────────────
      *
      * Mọi file JPEG hợp lệ đều bắt đầu bằng marker SOI
@@ -335,12 +345,13 @@ void capture_and_send() {
 
         /* c) Đóng gói Header
          *
-         * ChunkHeader (12 bytes):
+         * ChunkHeader (16 bytes):
          *   node_id:      Để Root phân biệt dữ liệu từ camera nào
          *   frame_id:     Để Root ghép đúng các chunk cùng frame
          *   chunk_index:  Vị trí chunk → Root biết copy vào offset nào
          *   total_chunks: Để Root biết khi nào nhận đủ
          *   payload_len:  Kích thước payload (chunk cuối < 1024)
+         *   capture_us:   Thời điểm chụp (đồng hồ mesh), chung cả frame
          */
         ChunkHeader header;
         header.node_id      = my_node_id;
@@ -348,11 +359,12 @@ void capture_and_send() {
         header.chunk_index  = i;
         header.total_chunks = total_chunks;
         header.payload_len  = payload_len;
+        header.capture_us   = capture_us;
 
         /* d) Serialize: Header + Payload → Base64 String
          *
          * serialize_chunk() trong chunk_protocol.h:
-         *   1. Copy header (12 bytes) vào static buffer
+         *   1. Copy header (16 bytes) vào static buffer
          *   2. Copy payload (≤1024 bytes) ngay sau header
          *   3. Base64 encode toàn bộ → trả về String
          *
@@ -436,6 +448,80 @@ void capture_and_send() {
      */
     frame_id_counter++;
     frames_sent++;
+}
+
+
+/* ================================================================
+ *  sta_mac_to_node_id()
+ *
+ *  Đổi MAC của một station (thấy trong danh sách station của AP)
+ *  sang nodeId painlessMesh của node đó.
+ *
+ *  painlessMesh tính nodeId = tcp::encodeNodeId(MAC SoftAP) — 4 byte
+ *  cuối, big-endian (painlessmesh/tcp.hpp, arduino/wifi.hpp init()).
+ *  Nhưng station nối vào AP bằng MAC STA. Với ESP32, core 2.0.17
+ *  (CONFIG_ESP32_UNIVERSAL_MAC_ADDRESSES=4): MAC SoftAP = MAC STA với
+ *  byte cuối +1 (tràn 8 bit, không nhớ). setup() tự kiểm tra công
+ *  thức trên chính board này (xem ap_map_self_check()).
+ * ================================================================ */
+static uint32_t sta_mac_to_node_id(const uint8_t* sta_mac) {
+    uint8_t ap_mac[6];
+    memcpy(ap_mac, sta_mac, 6);
+    ap_mac[5] = (uint8_t)(ap_mac[5] + 1);
+    return painlessmesh::tcp::encodeNodeId(ap_mac);
+}
+
+/* Áp sta_mac_to_node_id() lên MAC STA của chính board, phải ra đúng
+ * mesh.getNodeId(). Sai → ap_rssi của node này sẽ gán nhầm node. */
+static void ap_map_self_check() {
+    uint8_t sta_mac[6];
+    esp_read_mac(sta_mac, ESP_MAC_WIFI_STA);
+    uint32_t derived = sta_mac_to_node_id(sta_mac);
+    if (derived == mesh.getNodeId()) {
+        Serial.println("[MESH] MAC->nodeId (ap_rssi): OK");
+    } else {
+        Serial.printf("[MESH] CANH BAO: MAC->nodeId sai (%u != %u), ap_rssi se khong khop node\n",
+                      derived, mesh.getNodeId());
+    }
+}
+
+/* ================================================================
+ *  send_nstat()
+ *
+ *  Gửi trạng thái node cho Root: "#NSTAT" + JSON gọn. Root gom lại
+ *  đưa vào telemetry để dashboard vẽ topology, RSSI, phiên bản fw.
+ *
+ *  rssi = WiFi.RSSI() của liên kết STA lên node cha. Nếu Leaf không
+ *  có liên kết STA (WiFi.RSSI() trả 0) → gửi null, không gửi số giả.
+ *
+ *  ap_rssi = {"<nodeId>": dBm} của từng station đang nối vào AP của
+ *  Leaf này (node con trong cây), đo phía AP. Không có station → {}.
+ *  Chỉ gọi khi root_id != 0 (xem loop()).
+ * ================================================================ */
+void send_nstat() {
+    char buf[384];
+    char rssi_str[8];
+    int8_t rssi = WiFi.RSSI();
+    if (rssi != 0) snprintf(rssi_str, sizeof(rssi_str), "%d", (int)rssi);
+    else           strcpy(rssi_str, "null");
+
+    int pos = snprintf(buf, sizeof(buf),
+             NSTAT_PREFIX "{\"id\":%u,\"fw\":\"" FW_VERSION "\",\"rssi\":%s,"
+             "\"heap\":%u,\"frames\":%u,\"chunks_fail\":%u,\"ap_rssi\":{",
+             (unsigned)mesh.getNodeId(), rssi_str, (unsigned)ESP.getFreeHeap(),
+             (unsigned)frames_sent, (unsigned)chunks_send_fail);
+
+    wifi_sta_list_t sta_list;
+    if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
+        int n = sta_list.num < AP_RSSI_MAX ? sta_list.num : AP_RSSI_MAX;
+        for (int i = 0; i < n && pos < (int)sizeof(buf) - 32; i++) {
+            pos += snprintf(buf + pos, sizeof(buf) - pos, "%s\"%u\":%d", i ? "," : "",
+                            (unsigned)sta_mac_to_node_id(sta_list.sta[i].mac),
+                            (int)sta_list.sta[i].rssi);
+        }
+    }
+    snprintf(buf + pos, sizeof(buf) - pos, "}}");
+    mesh.sendSingle(root_id, String(buf));
 }
 
 
@@ -581,6 +667,8 @@ void setup() {
 
     Serial.printf("[MESH] Node ID: %u\n", mesh.getNodeId());
     Serial.printf("[MESH] Mesh SSID: %s\n", MESH_SSID);
+    Serial.printf("[SYS] Firmware: %s\n", FW_VERSION);
+    ap_map_self_check();
 
     /* ── Sẵn sàng ──────────────────────────────────────────── */
     Serial.println();
@@ -623,5 +711,13 @@ void loop() {
                           frames_sent, chunks_sent, chunks_send_fail,
                           ESP.getFreeHeap(), ESP.getFreePsram(), root_id);
         }
+    }
+
+    /* Gửi NSTAT cho Root mỗi NSTAT_INTERVAL_MS — chỉ khi đã biết Root.
+     * Lấy millis() mới vì capture_and_send() ở trên có thể mất vài trăm ms. */
+    uint32_t now_nstat = millis();
+    if (root_id != 0 && now_nstat - last_nstat_time >= NSTAT_INTERVAL_MS) {
+        last_nstat_time = now_nstat;
+        send_nstat();
     }
 }

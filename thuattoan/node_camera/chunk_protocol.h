@@ -17,7 +17,7 @@
  *         ▼
  *    ┌─────────────────────────────────────┐
  *    │  Cắt thành chunks 1024 byte        │
- *    │  Mỗi chunk + Header 12 byte        │
+ *    │  Mỗi chunk + Header 16 byte        │
  *    └─────────────────────────────────────┘
  *         │
  *         ▼
@@ -76,13 +76,13 @@
 extern void chunk_log(const char* msg);
 
 /* ────────────────────────────────────────────────────────────
- *  CẤU TRÚC CHUNK HEADER — 12 bytes, packed
+ *  CẤU TRÚC CHUNK HEADER — 16 bytes, packed
  *
  *  Cấu trúc này được đặt NGAY TRƯỚC payload trong mỗi packet
  *  trước khi encode Base64. Sử dụng #pragma pack(push, 1) để
  *  compiler không thêm padding byte.
  *
- *  Layout trong bộ nhớ (12 bytes liên tiếp):
+ *  Layout trong bộ nhớ (16 bytes liên tiếp):
  *
  *  Offset  Kích thước  Trường         Mô tả
  *  ──────  ──────────  ─────────────  ────────────────────────
@@ -92,6 +92,14 @@ extern void chunk_log(const char* msg);
  *  6       2 bytes     chunk_index    Vị trí chunk trong frame (0-based)
  *  8       2 bytes     total_chunks   Tổng số chunk của frame
  *  10      2 bytes     payload_len    Kích thước payload thực tế (≤1024)
+ *  12      4 bytes     capture_us     mesh.getNodeTime() (µs, đồng hồ
+ *                                     mesh đã đồng bộ) lúc Leaf chụp
+ *                                     xong frame — giống nhau ở mọi
+ *                                     chunk của frame. Root dùng để đo
+ *                                     latency chụp → ghép xong.
+ *
+ *  LƯU Ý: đổi header 12 → 16 byte làm Root/Leaf bản cũ và bản mới
+ *  KHÔNG hiểu nhau — phải nạp lại Root VÀ mọi Leaf cùng lúc.
  *
  *  Ví dụ: Ảnh JPEG 10KB = 10240 bytes
  *    total_chunks = ceil(10240 / 1024) = 10
@@ -109,8 +117,12 @@ typedef struct {
     uint16_t chunk_index;    // Vị trí chunk trong frame (2 bytes, 0-based)
     uint16_t total_chunks;   // Tổng số chunk của frame (2 bytes)
     uint16_t payload_len;    // Kích thước payload thực tế (2 bytes, ≤ 1024)
+    uint32_t capture_us;     // mesh.getNodeTime() lúc chụp (4 bytes, quay vòng ~71 phút)
 } ChunkHeader;
 #pragma pack(pop)
+
+static_assert(sizeof(ChunkHeader) == CHUNK_HEADER_SIZE,
+              "ChunkHeader phai dung CHUNK_HEADER_SIZE byte (xem mesh_config.h)");
 
 /* ────────────────────────────────────────────────────────────
  *  calc_total_chunks()
@@ -133,7 +145,7 @@ static inline uint16_t calc_total_chunks(size_t jpeg_len) {
  *  Đóng gói Header + Payload thành chuỗi Base64 để gửi qua Mesh.
  *
  *  Quy trình:
- *  1. Tạo buffer tạm: [Header 12 bytes][Payload ≤1024 bytes]
+ *  1. Tạo buffer tạm: [Header 16 bytes][Payload ≤1024 bytes]
  *  2. Encode Base64 toàn bộ buffer → chuỗi text
  *  3. Trả về Arduino String
  *
@@ -154,8 +166,8 @@ static String serialize_chunk(const ChunkHeader& header, const uint8_t* payload)
 
     /*
      * Buffer tạm chứa binary data trước khi encode:
-     *   [12 bytes header][up to 1024 bytes payload]
-     * Kích thước tối đa: 12 + 1024 = 1036 bytes
+     *   [16 bytes header][up to 1024 bytes payload]
+     * Kích thước tối đa: 16 + 1024 = 1040 bytes
      *
      * Dùng static để:
      * - Tránh cấp phát heap mỗi lần gọi (gọi 10-15 lần/frame × 3 FPS = 30-45 lần/giây)
@@ -165,7 +177,7 @@ static String serialize_chunk(const ChunkHeader& header, const uint8_t* payload)
 
     /* Bước 1: Copy header vào đầu buffer
      *
-     * memcpy an toàn vì ChunkHeader được pack(1), kích thước đúng 12 bytes.
+     * memcpy an toàn vì ChunkHeader được pack(1), kích thước đúng 16 bytes (static_assert ở trên).
      * Đây là serialization đơn giản nhất: copy struct nguyên bản.
      * Cả sender và receiver đều là ESP32 (cùng endianness - Little Endian),
      * nên không cần chuyển đổi byte order.
@@ -187,12 +199,12 @@ static String serialize_chunk(const ChunkHeader& header, const uint8_t* payload)
     /* Bước 4: Encode Base64
      *
      * Kích thước output Base64:
-     *   raw_len = 1036 (worst case)
-     *   encoded = ceil(1036/3) * 4 = 346 * 4 = 1384 ký tự
+     *   raw_len = 1040 (worst case)
+     *   encoded = ceil(1040/3) * 4 = 347 * 4 = 1388 ký tự
      *
      * Buffer Base64 cũng dùng static:
-     *   1384 + 1 (null) = 1385 bytes
-     *   Làm tròn lên 1536 để an toàn
+     *   1388 + 1 (null) = 1389 bytes
+     *   Buffer 2048 dư an toàn
      */
     static char b64_buffer[2048];
     size_t b64_len = base64_encode(raw_buffer, raw_len, b64_buffer, sizeof(b64_buffer));
@@ -218,7 +230,7 @@ static String serialize_chunk(const ChunkHeader& header, const uint8_t* payload)
  *
  *  Quy trình (ngược lại serialize):
  *  1. Decode Base64 → buffer binary
- *  2. Trích xuất 12 bytes đầu → ChunkHeader
+ *  2. Trích xuất 16 bytes đầu → ChunkHeader
  *  3. Phần còn lại → Payload data
  *
  *  Tham số:
@@ -243,8 +255,8 @@ static bool deserialize_chunk(const String& encoded,
     static uint8_t decode_buf[CHUNK_HEADER_SIZE + MAX_CHUNK_PAYLOAD + 16];
 
     size_t encoded_len = encoded.length();
-    if (encoded_len < 16) {
-        // Base64 của 12 bytes header ≥ 16 ký tự → message quá ngắn
+    if (encoded_len < ((CHUNK_HEADER_SIZE + 2) / 3) * 4) {
+        // Base64 của 16 bytes header ≥ 24 ký tự → message quá ngắn
         chunk_log("[CHUNK] Message too short!");
         return false;
     }
@@ -262,7 +274,7 @@ static bool deserialize_chunk(const String& encoded,
         return false;
     }
 
-    /* Bước 2: Trích xuất Header (12 bytes đầu)
+    /* Bước 2: Trích xuất Header (16 bytes đầu)
      *
      * Copy ngược lại: binary → struct ChunkHeader.
      * An toàn vì cùng platform (ESP32 Little Endian).

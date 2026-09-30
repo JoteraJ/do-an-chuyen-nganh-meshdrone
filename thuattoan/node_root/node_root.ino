@@ -43,6 +43,7 @@
 
 #include <painlessMesh.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <stdarg.h>
 
 /* ────────────────────────────────────────────────────────────
@@ -116,6 +117,10 @@ typedef struct {
      */
     uint32_t start_time_ms;
 
+    /* capture_us của frame (từ header chunk đầu tiên — Leaf gán cùng
+     * giá trị cho mọi chunk). Dùng tính latency khi ghép xong. */
+    uint32_t capture_us;
+
 } FrameAssembly;
 
 
@@ -180,6 +185,167 @@ bool ip_printed = false;
  */
 uint32_t last_disconnect_ms = 0;
 int32_t  last_self_heal_ms  = -1;
+
+/* ── Latency chụp (Leaf) → ghép xong (Root) ─────────────────
+ *
+ * latency_us = mesh.getNodeTime() lúc ghép xong − capture_us trong header.
+ * Cả hai đều là đồng hồ mesh đã đồng bộ (KHÔNG dùng millis() của 2 board).
+ * Gom mẫu trong 1 chu kỳ telemetry, gửi đi rồi reset (xem
+ * send_telemetry_frame()). Mẫu > LATENCY_MAX_VALID_US bị bỏ — coi là
+ * đồng hồ mesh chưa đồng bộ xong (vd Leaf vừa join), kể cả trường hợp
+ * đồng hồ Leaf chạy trước Root khiến phép trừ không dấu ra số rất lớn.
+ */
+#define LATENCY_MAX_VALID_US  10000000UL   // 10 giây
+#define LAT_MAX_NODES         8            // số Leaf tối đa theo dõi riêng mỗi chu kỳ
+
+uint64_t lat_sum_us = 0;
+uint32_t lat_min_us = 0;
+uint32_t lat_max_us = 0;
+uint32_t lat_n      = 0;
+
+struct NodeLatency { uint32_t node_id; uint64_t sum_us; uint32_t n; };
+NodeLatency lat_by_node[LAT_MAX_NODES];
+uint8_t     lat_node_count = 0;
+
+/* ── Trạng thái từng Leaf (NSTAT) ──────────────────────────
+ *
+ * Leaf gửi "#NSTAT{...}" mỗi NSTAT_INTERVAL_MS (xem node_camera.ino
+ * send_nstat()). Root chỉ giữ bản MỚI NHẤT của mỗi node + millis() lúc
+ * nhận, rồi đưa vào telemetry ("nodes"). Không log mỗi lần nhận.
+ *
+ * Node đã rời mesh vẫn được liệt kê (hop = null) thêm NSTAT_FORGET_MS
+ * để dashboard kịp vẽ mờ "mất tín hiệu", sau đó bỏ khỏi telemetry.
+ */
+#define NSTAT_MAX_NODES   8
+#define NSTAT_FORGET_MS   60000UL
+#define LINK_AP_MAX_AGE_MS 6000UL   // ap_rssi trong NSTAT cũ hơn mức này → coi như không biết AP của node đó
+
+/* RSSI đo phía AP: các station đang nối vào AP của một node, khóa = nodeId
+ * (xem sta_mac_to_node_id()). Root tự đọc của mình; Leaf gửi trong "ap_rssi". */
+struct ApLinks {
+    uint8_t  n;
+    uint32_t ids[AP_RSSI_MAX];
+    int8_t   rssi[AP_RSSI_MAX];
+};
+
+struct NodeStat {
+    uint32_t id;         // 0 = ô trống
+    char     fw[16];
+    bool     has_rssi;
+    int16_t  rssi;       // WiFi.RSSI() phía station của chính node này (lên node cha)
+    uint32_t heap;
+    uint32_t rx_ms;      // millis() lúc nhận NSTAT gần nhất
+    ApLinks  ap;         // "ap_rssi": các node con nối vào AP của node này
+    bool     ap_known;   // NSTAT có trường "ap_rssi" (kể cả {}); false = Leaf firmware cũ
+};
+NodeStat node_stats[NSTAT_MAX_NODES];
+
+static void record_latency(uint32_t node_id, uint32_t capture_us) {
+    // Phép trừ không dấu 32 bit tự xử lý quay vòng của getNodeTime() (~71 phút)
+    uint32_t latency_us = (uint32_t)(mesh.getNodeTime() - capture_us);
+    if (latency_us > LATENCY_MAX_VALID_US) return;
+
+    if (lat_n == 0 || latency_us < lat_min_us) lat_min_us = latency_us;
+    if (lat_n == 0 || latency_us > lat_max_us) lat_max_us = latency_us;
+    lat_sum_us += latency_us;
+    lat_n++;
+
+    for (uint8_t i = 0; i < lat_node_count; i++) {
+        if (lat_by_node[i].node_id == node_id) {
+            lat_by_node[i].sum_us += latency_us;
+            lat_by_node[i].n++;
+            return;
+        }
+    }
+    if (lat_node_count < LAT_MAX_NODES) {
+        lat_by_node[lat_node_count++] = { node_id, latency_us, 1 };
+    }
+}
+
+static NodeStat* find_node_stat(uint32_t id) {
+    for (uint8_t i = 0; i < NSTAT_MAX_NODES; i++) {
+        if (node_stats[i].id == id) return &node_stats[i];
+    }
+    return NULL;
+}
+
+static void store_nstat(uint32_t from, const String& msg) {
+    JsonDocument doc;
+    if (deserializeJson(doc, msg.c_str() + strlen(NSTAT_PREFIX))) return; // JSON hỏng → bỏ
+
+    NodeStat* ns = find_node_stat(from);
+    if (ns == NULL) {
+        // Ô trống, nếu hết thì ghi đè ô nhận lâu nhất
+        uint8_t oldest = 0;
+        for (uint8_t i = 0; i < NSTAT_MAX_NODES; i++) {
+            if (node_stats[i].id == 0) { oldest = i; break; }
+            if (node_stats[i].rx_ms < node_stats[oldest].rx_ms) oldest = i;
+        }
+        ns = &node_stats[oldest];
+    }
+
+    ns->id = from;   // tin 'from' của painlessMesh hơn trường "id" trong JSON
+
+    // Chỉ giữ ký tự an toàn để chèn thẳng vào JSON telemetry
+    const char* fw = doc["fw"] | "";
+    uint8_t k = 0;
+    for (; *fw && k < sizeof(ns->fw) - 1; fw++) {
+        char c = *fw;
+        if (isalnum((unsigned char)c) || c == '-' || c == '.' || c == '_') ns->fw[k++] = c;
+    }
+    ns->fw[k] = '\0';
+
+    ns->has_rssi = doc["rssi"].is<int>();
+    ns->rssi     = ns->has_rssi ? (int16_t)doc["rssi"].as<int>() : 0;
+    ns->heap     = doc["heap"] | 0u;
+    ns->rx_ms    = millis();
+
+    // "ap_rssi": {"<nodeId>": dBm} — Leaf firmware cũ không gửi → ap.n = 0
+    ns->ap.n = 0;
+    ns->ap_known = doc["ap_rssi"].is<JsonObject>();
+    for (JsonPair kv : doc["ap_rssi"].as<JsonObject>()) {
+        if (ns->ap.n >= AP_RSSI_MAX) break;
+        if (!kv.value().is<int>()) continue;
+        uint32_t id = strtoul(kv.key().c_str(), NULL, 10);
+        if (id == 0) continue;
+        ns->ap.ids[ns->ap.n]  = id;
+        ns->ap.rssi[ns->ap.n] = (int8_t)kv.value().as<int>();
+        ns->ap.n++;
+    }
+}
+
+/* sta_mac_to_node_id(): MAC station (trong danh sách station của AP) → nodeId.
+ *
+ * painlessMesh tính nodeId = tcp::encodeNodeId(MAC SoftAP) — 4 byte cuối,
+ * big-endian (painlessmesh/tcp.hpp, arduino/wifi.hpp init()). Station nối vào
+ * AP bằng MAC STA; với ESP32, core 2.0.17 (CONFIG_ESP32_UNIVERSAL_MAC_ADDRESSES=4)
+ * MAC SoftAP = MAC STA với byte cuối +1 (tràn 8 bit, không nhớ). setup() tự
+ * kiểm tra công thức trên chính board (ap_map_self_check()). */
+static uint32_t sta_mac_to_node_id(const uint8_t* sta_mac) {
+    uint8_t ap_mac[6];
+    memcpy(ap_mac, sta_mac, 6);
+    ap_mac[5] = (uint8_t)(ap_mac[5] + 1);
+    return painlessmesh::tcp::encodeNodeId(ap_mac);
+}
+
+/* Đọc RSSI từng station đang nối vào AP của Root (node con hop 1). */
+static void read_own_ap_links(ApLinks& a) {
+    a.n = 0;
+    wifi_sta_list_t sta_list;
+    if (esp_wifi_ap_get_sta_list(&sta_list) != ESP_OK) return;
+    for (int i = 0; i < sta_list.num && a.n < AP_RSSI_MAX; i++) {
+        a.ids[a.n]  = sta_mac_to_node_id(sta_list.sta[i].mac);
+        a.rssi[a.n] = sta_list.sta[i].rssi;
+        a.n++;
+    }
+}
+
+static bool ap_links_find(const ApLinks& a, uint32_t id, int& rssi) {
+    for (uint8_t i = 0; i < a.n; i++) {
+        if (a.ids[i] == id) { rssi = a.rssi[i]; return true; }
+    }
+    return false;
+}
 
 /* [ĐÃ XÓA] uart_tx_buffer riêng đã bị bỏ để tiết kiệm 64KB+10B SRAM.
  * send_image_frame() bây giờ gửi sub-header 10 byte và JPEG data
@@ -250,26 +416,199 @@ static void log_framef(const char* fmt, ...) {
 #define DBGLN(x) log_frame_str(x)
 #define DBGF(...) log_framef(__VA_ARGS__)
 
+/* json_appendf(): ghi tiếp vào buf tại pos, không bao giờ để pos vượt buf
+ * (bị cắt -> JSON hỏng, middleware tự bỏ qua khung đó thay vì tràn bộ nhớ). */
+static void json_appendf(char* buf, size_t sz, int& pos, const char* fmt, ...) {
+    if (pos >= (int)sz - 1) return;
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(buf + pos, sz - (size_t)pos, fmt, args);
+    va_end(args);
+    if (n > 0) pos = (pos + n > (int)sz - 1) ? (int)sz - 1 : pos + n;
+}
+
 /* chunk_log() — hook mà shared/chunk_protocol.h gọi khi có lỗi giải mã
  * chunk (xem khai báo extern trong chunk_protocol.h). Ở node_root, route
- * về log_frame_str() để không in text thô đè lên luồng nhị phân UART. */
+ * về log_frame_str() để không in text thô đè lên luồng nhị phân UART.
+ *
+ * Giới hạn tối đa 1 dòng / CHUNK_LOG_INTERVAL_MS: gom các lỗi cùng loại
+ * (phần trước ": " của message) thành 1 dòng
+ *   "[CHUNK] Size mismatch x<N> (decoded=..., expected=...)"
+ * với chi tiết của lỗi gần nhất. Mọi lỗi vẫn được đếm vào chunk_errors
+ * (gửi trong telemetry "chunk_err"). Lỗi khác loại trong cùng cửa sổ
+ * được đếm vào "+M loi khac". chunk_log_flush() gọi thêm từ loop() để
+ * dòng tổng kết cuối đợt lỗi vẫn được in ra. */
+#define CHUNK_LOG_INTERVAL_MS 1000
+
+uint32_t chunk_errors = 0;               // tổng lỗi chunk từ lúc khởi động
+
+static char     chunk_err_kind[48];
+static char     chunk_err_detail[64];
+static uint32_t chunk_err_kind_n     = 0; // số lỗi loại chunk_err_kind trong cửa sổ
+static uint32_t chunk_err_other_n    = 0; // số lỗi loại khác trong cửa sổ
+static uint32_t chunk_err_last_print = 0;
+
+static void chunk_log_flush() {
+    if (chunk_err_kind_n == 0) return;
+    uint32_t now = millis();
+    if (now - chunk_err_last_print < CHUNK_LOG_INTERVAL_MS) return;
+
+    char line[160];
+    int pos = 0;
+    json_appendf(line, sizeof(line), pos, "%s x%u", chunk_err_kind, (unsigned)chunk_err_kind_n);
+    if (chunk_err_detail[0]) json_appendf(line, sizeof(line), pos, " (%s)", chunk_err_detail);
+    if (chunk_err_other_n)   json_appendf(line, sizeof(line), pos, " +%u loi khac", (unsigned)chunk_err_other_n);
+    log_frame_str(line);
+
+    chunk_err_kind_n = 0;
+    chunk_err_other_n = 0;
+    chunk_err_last_print = now;
+}
+
+/* chunk_logf(): như chunk_log() nhưng nhận format — lỗi validate header
+ * trong receive_and_reassemble() cũng đi qua bộ giới hạn 1 dòng/giây.
+ * (chunk_log() đã khai báo extern trong chunk_protocol.h.) */
+static void chunk_logf(const char* fmt, ...) {
+    char buf[96];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    chunk_log(buf);
+}
+
 void chunk_log(const char* msg) {
-    log_frame_str(msg);
+    chunk_errors++;
+
+    const char* sep  = strstr(msg, ": ");
+    size_t      klen = sep ? (size_t)(sep - msg) : strlen(msg);
+    if (klen > sizeof(chunk_err_kind) - 1) klen = sizeof(chunk_err_kind) - 1;
+
+    if (chunk_err_kind_n == 0) {
+        memcpy(chunk_err_kind, msg, klen);
+        chunk_err_kind[klen] = '\0';
+    } else if (strlen(chunk_err_kind) != klen || strncmp(chunk_err_kind, msg, klen) != 0) {
+        chunk_err_other_n++;
+        chunk_log_flush();
+        return;
+    }
+    chunk_err_kind_n++;
+    strlcpy(chunk_err_detail, sep ? sep + 2 : "", sizeof(chunk_err_detail));
+    chunk_log_flush();
+}
+
+/* collect_hops(): duyệt cây từ mesh.asNodeTree() (Root ở gốc, depth 0),
+ * ghi (node_id, hop, node cha) của mọi node khác vào ids[]/hops[]/parents[].
+ * Nối thẳng Root = hop 1. Dừng ghi khi đầy mảng. */
+#define TREE_MAX_NODES 16
+
+static void collect_hops(const painlessmesh::protocol::NodeTree& t, uint8_t depth,
+                         uint32_t* ids, uint8_t* hops, uint32_t* parents, uint8_t& n) {
+    for (auto& s : t.subs) {
+        if (n >= TREE_MAX_NODES) return;
+        ids[n] = s.nodeId;
+        hops[n] = depth + 1;
+        parents[n] = t.nodeId;
+        n++;
+        collect_hops(s, depth + 1, ids, hops, parents, n);
+    }
+}
+
+/* ap_links_of(): danh sách station đang nối vào AP của node x.
+ * Root: đọc trực tiếp (root_ap). Leaf: "ap_rssi" trong NSTAT, chỉ khi Leaf
+ * có gửi trường này và NSTAT chưa quá LINK_AP_MAX_AGE_MS. NULL = không biết. */
+static const ApLinks* ap_links_of(uint32_t x, const ApLinks& root_ap, uint32_t now) {
+    if (x == mesh.getNodeId()) return &root_ap;
+    const NodeStat* s = find_node_stat(x);
+    if (s && s->ap_known && now - s->rx_ms <= LINK_AP_MAX_AGE_MS) return &s->ap;
+    return NULL;
+}
+
+/* root_sta_peer(): nodeId của node mà station của Root đang nối vào AP của
+ * nó (0 = không nối). BSSID là MAC SoftAP của node kia → encodeNodeId() trực
+ * tiếp, giống painlessMeshSTA.cpp (encodeNodeId(ap->bssid)). */
+static uint32_t root_sta_peer() {
+    if (!WiFi.isConnected()) return 0;
+    uint8_t* bssid = WiFi.BSSID();
+    return bssid ? painlessmesh::tcp::encodeNodeId(bssid) : 0;
+}
+
+/* link_rssi_for(): RSSI của liên kết (cha, con) trong cây. Mỗi liên kết
+ * painlessMesh là station của một bên nối vào AP của bên kia, nên chỉ một
+ * trong hai AP thấy bên kia. Thứ tự ưu tiên:
+ *   1. "ap_parent": AP của cha thấy con.
+ *   2. "ap_child":  AP của con thấy cha (liên kết chiều ngược: station của
+ *                   cha nối vào AP của con).
+ *   3. "sta":       "rssi" phía station của con — chỉ khi chắc station con
+ *                   đang nối vào cha: AP của con đã biết mà không có cha, và
+ *                   AP của cha chưa biết (nếu AP cha đã biết mà không có con
+ *                   thì station con không nối vào cha).
+ *   4. "root_sta":  Root là một đầu và station của Root đang nối vào AP của
+ *                   đầu kia → WiFi.RSSI() của Root.
+ * Trả nguồn, hoặc NULL nếu không có số đo nào đáng tin. */
+static const char* link_rssi_for(uint32_t child, uint32_t parent, const ApLinks& root_ap,
+                                 uint32_t root_sta_id, int root_sta_rssi,
+                                 uint32_t now, int& rssi) {
+    const ApLinks* pa = ap_links_of(parent, root_ap, now);
+    if (pa && ap_links_find(*pa, child, rssi)) return "ap_parent";
+
+    const ApLinks* ca = ap_links_of(child, root_ap, now);
+    if (ca && ap_links_find(*ca, parent, rssi)) return "ap_child";
+
+    const NodeStat* c = find_node_stat(child);
+    if (!pa && ca && c && c->has_rssi) { rssi = c->rssi; return "sta"; }
+
+    uint32_t self = mesh.getNodeId();
+    if (root_sta_id != 0 &&
+        ((parent == self && root_sta_id == child) || (child == self && root_sta_id == parent))) {
+        rssi = root_sta_rssi;
+        return "root_sta";
+    }
+    return NULL;
+}
+
+/* append_node_json(): 1 phần tử của mảng "nodes". Trường chưa có → null.
+ * link_src = NULL → "link_rssi"/"link_rssi_src" = null. */
+static void append_node_json(char* json, size_t sz, int& pos, bool first,
+                             uint32_t id, int hop, const NodeStat* ns, uint32_t now,
+                             const char* link_src, int link_rssi) {
+    json_appendf(json, sz, pos, "%s{\"id\":%u,", first ? "" : ",", (unsigned)id);
+    if (ns) {
+        json_appendf(json, sz, pos, "\"fw\":\"%s\",", ns->fw);
+        if (ns->has_rssi) json_appendf(json, sz, pos, "\"rssi\":%d,", (int)ns->rssi);
+        else              json_appendf(json, sz, pos, "\"rssi\":null,");
+        json_appendf(json, sz, pos, "\"heap\":%u,", (unsigned)ns->heap);
+    } else {
+        json_appendf(json, sz, pos, "\"fw\":null,\"rssi\":null,\"heap\":null,");
+    }
+    if (link_src) json_appendf(json, sz, pos, "\"link_rssi\":%d,\"link_rssi_src\":\"%s\",", link_rssi, link_src);
+    else          json_appendf(json, sz, pos, "\"link_rssi\":null,\"link_rssi_src\":null,");
+    if (hop > 0) json_appendf(json, sz, pos, "\"hop\":%d,", hop);
+    else         json_appendf(json, sz, pos, "\"hop\":null,");
+    if (ns) json_appendf(json, sz, pos, "\"age_ms\":%u}", (unsigned)(now - ns->rx_ms));
+    else    json_appendf(json, sz, pos, "\"age_ms\":null}");
 }
 
 /* send_telemetry_frame(): xem cấu trúc JSON trong UART_PROTOCOL.md §4.2.
- * Gọi định kỳ mỗi TELEMETRY_SEND_INTERVAL_MS từ loop(). */
+ * Gọi định kỳ mỗi TELEMETRY_SEND_INTERVAL_MS từ loop().
+ *
+ * Kích thước: ~550 byte trường cũ + ~40 byte/node trong "tree" + ~125
+ * byte/node trong "nodes". 16 node (TREE_MAX_NODES) ≈ 3,2KB < 4096 —
+ * vẫn rất xa giới hạn khung UART (131072, UART_PROTOCOL.md §3). Buffer
+ * static để không chiếm stack của loopTask. Nếu vẫn bị cắt, bỏ khung
+ * thay vì gửi JSON hỏng. */
 static void send_telemetry_frame() {
     auto nodeList = mesh.getNodeList();
 
-    char json[512];
+    static char json[4096];
     int pos = snprintf(json, sizeof(json),
-        "{\"ts\":%lu,\"role\":\"root\",\"layer\":0,"
-        "\"frames_ok\":%u,\"frames_drop\":%u,\"chunks\":%u,"
+        "{\"ts\":%lu,\"role\":\"root\",\"layer\":0,\"fw\":\"" FW_VERSION "\","
+        "\"frames_ok\":%u,\"frames_drop\":%u,\"chunks\":%u,\"chunk_err\":%u,"
         "\"heap_free\":%u,\"psram_free\":%u,"
         "\"node_count\":%u,\"node_ids\":[",
         (unsigned long)millis(),
         (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
+        (unsigned)chunk_errors,
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
         (unsigned)nodeList.size());
 
@@ -282,7 +621,74 @@ static void send_telemetry_frame() {
         first = false;
     }
     if (pos < 0) pos = 0;
-    pos += snprintf(json + pos, sizeof(json) - (size_t)pos, "],\"last_self_heal_ms\":%ld}", (long)last_self_heal_ms);
+    if (pos > (int)sizeof(json) - 1) pos = (int)sizeof(json) - 1;
+    json_appendf(json, sizeof(json), pos, "],\"last_self_heal_ms\":%ld", (long)last_self_heal_ms);
+
+    /* Latency của chu kỳ vừa qua. Không có mẫu → lat_n = 0, các giá trị là
+     * null (không gửi số giả). */
+    if (lat_n > 0) {
+        json_appendf(json, sizeof(json), pos,
+            ",\"lat_avg_ms\":%.1f,\"lat_min_ms\":%.1f,\"lat_max_ms\":%.1f,\"lat_n\":%u,\"lat_by_node\":{",
+            (double)lat_sum_us / lat_n / 1000.0, lat_min_us / 1000.0, lat_max_us / 1000.0, (unsigned)lat_n);
+        for (uint8_t i = 0; i < lat_node_count; i++) {
+            json_appendf(json, sizeof(json), pos, "%s\"%u\":%.1f",
+                i ? "," : "", (unsigned)lat_by_node[i].node_id,
+                (double)lat_by_node[i].sum_us / lat_by_node[i].n / 1000.0);
+        }
+        json_appendf(json, sizeof(json), pos, "}");
+    } else {
+        json_appendf(json, sizeof(json), pos,
+            ",\"lat_avg_ms\":null,\"lat_min_ms\":null,\"lat_max_ms\":null,\"lat_n\":0,\"lat_by_node\":{}");
+    }
+
+    lat_sum_us = 0; lat_n = 0; lat_node_count = 0;
+
+    /* "tree": nguyên văn mesh.asNodeTree().toString() (= subConnectionJson()),
+     * dạng {"nodeId":N,"root":true,"subs":[{"nodeId":M,"subs":[...]}]} */
+    auto tree = mesh.asNodeTree();
+    json_appendf(json, sizeof(json), pos, ",\"tree\":%s", tree.toString().c_str());
+
+    /* "nodes": mọi node trong cây (kể cả chưa từng gửi NSTAT → fw = null),
+     * cộng node đã rời mesh nhưng NSTAT còn mới hơn NSTAT_FORGET_MS (hop = null). */
+    uint32_t tree_ids[TREE_MAX_NODES];
+    uint8_t  tree_hops[TREE_MAX_NODES];
+    uint32_t tree_parents[TREE_MAX_NODES];
+    uint8_t  tree_n = 0;
+    collect_hops(tree, 0, tree_ids, tree_hops, tree_parents, tree_n);
+
+    ApLinks root_ap;
+    read_own_ap_links(root_ap);
+    uint32_t root_sta_id   = root_sta_peer();
+    int      root_sta_rssi = root_sta_id ? WiFi.RSSI() : 0;
+
+    uint32_t now = millis();
+    bool first_node = true;
+    json_appendf(json, sizeof(json), pos, ",\"nodes\":[");
+    for (uint8_t i = 0; i < tree_n; i++) {
+        int link_rssi = 0;
+        const char* link_src = link_rssi_for(tree_ids[i], tree_parents[i], root_ap,
+                                             root_sta_id, root_sta_rssi, now, link_rssi);
+        append_node_json(json, sizeof(json), pos, first_node, tree_ids[i], tree_hops[i],
+                         find_node_stat(tree_ids[i]), now, link_src, link_rssi);
+        first_node = false;
+    }
+    for (uint8_t i = 0; i < NSTAT_MAX_NODES; i++) {
+        const NodeStat& ns = node_stats[i];
+        if (ns.id == 0 || now - ns.rx_ms > NSTAT_FORGET_MS) continue;
+        bool in_tree = false;
+        for (uint8_t j = 0; j < tree_n; j++) {
+            if (tree_ids[j] == ns.id) { in_tree = true; break; }
+        }
+        if (in_tree) continue;
+        append_node_json(json, sizeof(json), pos, first_node, ns.id, 0, &ns, now, NULL, 0);
+        first_node = false;
+    }
+    json_appendf(json, sizeof(json), pos, "]}");
+
+    if (pos >= (int)sizeof(json) - 1) {
+        DBGF("[TELE] JSON telemetry vuot %u byte, bo khung nay", (unsigned)sizeof(json));
+        return;
+    }
 
     send_uart_frame(FRAME_TYPE_TELEMETRY, (const uint8_t*)json, (size_t)pos);
 }
@@ -466,7 +872,7 @@ int find_assembly_slot(uint32_t node_id, uint16_t frame_id) {
  *  vùng nhớ PSRAM hiện có.
  * ================================================================ */
 int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
-                           uint16_t total_chunks) {
+                           uint16_t total_chunks, uint32_t capture_us) {
 
     /* Bước 1: Tìm slot trống */
     for (int i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
@@ -479,6 +885,7 @@ int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
             assemblies[i].received_count = 0;
             assemblies[i].jpeg_total_len = 0;
             assemblies[i].start_time_ms  = millis();
+            assemblies[i].capture_us     = capture_us;
 
             // Reset bitmap — tất cả chunk chưa nhận
             memset(assemblies[i].chunk_received, 0,
@@ -526,6 +933,7 @@ int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
     assemblies[oldest_idx].received_count = 0;
     assemblies[oldest_idx].jpeg_total_len = 0;
     assemblies[oldest_idx].start_time_ms  = millis();
+    assemblies[oldest_idx].capture_us     = capture_us;
     memset(assemblies[oldest_idx].chunk_received, 0,
            sizeof(assemblies[oldest_idx].chunk_received));
 
@@ -541,7 +949,7 @@ int allocate_assembly_slot(uint32_t node_id, uint16_t frame_id,
  *
  *  Luồng xử lý:
  *  ─────────────
- *  1. Base64 decode → binary (header 12 bytes + payload ≤1024 bytes)
+ *  1. Base64 decode → binary (header 16 bytes + payload ≤1024 bytes)
  *  2. Validate header (chunk_index, total_chunks, payload_len)
  *  3. Tìm slot assembly cho (node_id, frame_id) hoặc tạo mới
  *  4. Kiểm tra chunk trùng lặp → bỏ qua nếu đã nhận
@@ -562,7 +970,7 @@ void receive_and_reassemble(uint32_t from, String &msg) {
      *
      * deserialize_chunk() trong chunk_protocol.h:
      *   - Decode Base64 string → binary buffer (static)
-     *   - Trích xuất 12 bytes đầu → ChunkHeader
+     *   - Trích xuất 16 bytes đầu → ChunkHeader
      *   - Copy phần còn lại → payload_buf
      *   - Validate kích thước và tính toàn vẹn
      */
@@ -584,19 +992,19 @@ void receive_and_reassemble(uint32_t from, String &msg) {
      *   - Quá nhiều chunk (total_chunks > MAX_CHUNKS_PER_FRAME)
      */
     if (header.chunk_index >= header.total_chunks) {
-        DBGF("[ASM] Header KHONG HOP LE: idx=%d >= total=%d\n",
-                      header.chunk_index, header.total_chunks);
+        chunk_logf("[ASM] Header KHONG HOP LE: idx=%d >= total=%d",
+                   header.chunk_index, header.total_chunks);
         return;
     }
 
     if (header.total_chunks > MAX_CHUNKS_PER_FRAME) {
-        DBGF("[ASM] Qua nhieu chunk: %d > %d\n",
-                      header.total_chunks, MAX_CHUNKS_PER_FRAME);
+        chunk_logf("[ASM] Qua nhieu chunk: %d > %d",
+                   header.total_chunks, MAX_CHUNKS_PER_FRAME);
         return;
     }
 
     if (header.payload_len > MAX_CHUNK_PAYLOAD || header.payload_len == 0) {
-        DBGF("[ASM] Payload khong hop le: %d bytes\n", header.payload_len);
+        chunk_logf("[ASM] Payload khong hop le: %d bytes", header.payload_len);
         return;
     }
 
@@ -630,7 +1038,7 @@ void receive_and_reassemble(uint32_t from, String &msg) {
 
         // Slot mới — frame chưa từng thấy
         slot = allocate_assembly_slot(header.node_id, header.frame_id,
-                                      header.total_chunks);
+                                      header.total_chunks, header.capture_us);
         if (slot < 0) {
             DBGLN("[ASM] Khong the cap phat slot!");
             return;
@@ -678,8 +1086,8 @@ void receive_and_reassemble(uint32_t from, String &msg) {
 
     // Kiểm tra tràn buffer (an toàn)
     if (offset + header.payload_len > MAX_FRAME_SIZE) {
-        DBGF("[ASM] TRAN BUFFER: offset=%d + len=%d > %d\n",
-                      (int)offset, header.payload_len, MAX_FRAME_SIZE);
+        chunk_logf("[ASM] TRAN BUFFER: offset=%d + len=%d > %d",
+                   (int)offset, header.payload_len, MAX_FRAME_SIZE);
         return;
     }
 
@@ -737,6 +1145,9 @@ void receive_and_reassemble(uint32_t from, String &msg) {
          * nếu bật lại HTTP với nhiều Leaf, cần copy latest_frame sang
          * buffer riêng thay vì trỏ thẳng vào assembly buffer.
          */
+        // Latency chụp → ghép xong, đo NGAY khi frame hoàn chỉnh (trước khi gửi UART)
+        record_latency(fa.node_id, fa.capture_us);
+
         latest_frame        = fa.jpeg_buffer; // trỏ trực tiếp, không copy
         latest_frame_len    = fa.jpeg_total_len;
         new_frame_available = true;
@@ -1050,6 +1461,11 @@ void receivedCallback(uint32_t from, String &msg) {
     // Beacon do chính Root phát ra (xem loop()) — phòng xa, Root
     // không nên tự nhận broadcast của mình, nhưng bỏ qua sớm cho chắc.
     if (msg.startsWith(ROOT_BEACON_PREFIX)) return;
+    // Trạng thái Leaf — tách TRƯỚC khi coi message là chunk Base64
+    if (msg.startsWith(NSTAT_PREFIX)) {
+        store_nstat(from, msg);
+        return;
+    }
     receive_and_reassemble(from, msg);
 }
 
@@ -1092,6 +1508,21 @@ void changedConnectionCallback() {
         last_self_heal_ms = (int32_t)(millis() - last_disconnect_ms);
         DBGF("[MESH] SELF-HEALING: mang khoi phuc sau %ld ms\n", (long)last_self_heal_ms);
         last_disconnect_ms = 0; // reset, san sang cho lan rot ket noi tiep theo
+    }
+}
+
+
+/* Áp sta_mac_to_node_id() lên MAC STA của chính board, phải ra đúng
+ * mesh.getNodeId(). Sai → link_rssi phía AP sẽ gán nhầm node. */
+static void ap_map_self_check() {
+    uint8_t sta_mac[6];
+    esp_read_mac(sta_mac, ESP_MAC_WIFI_STA);
+    uint32_t derived = sta_mac_to_node_id(sta_mac);
+    if (derived == mesh.getNodeId()) {
+        DBGLN("[MESH] MAC->nodeId (link_rssi phia AP): OK");
+    } else {
+        DBGF("[MESH] CANH BAO: MAC->nodeId sai (%u != %u), link_rssi phia AP se khong khop node",
+             (unsigned)derived, (unsigned)mesh.getNodeId());
     }
 }
 
@@ -1187,6 +1618,8 @@ void setup() {
     // mesh.stationManual(STATION_SSID, STATION_PASSWORD);
 
     DBGF("[MESH] Root Node ID: %u\n", mesh.getNodeId());
+    DBGF("[SYS] Firmware: %s\n", FW_VERSION);
+    ap_map_self_check();
     DBGF("[MESH] Mesh SSID: %s\n", MESH_SSID);
     DBGF("[MESH] Ket noi WiFi: %s\n", STATION_SSID);
 
@@ -1242,6 +1675,9 @@ void loop() {
 
     /* [3] Dọn dẹp frame timeout */
     cleanup_stale_frames();
+
+    /* [3b] In dòng tổng kết lỗi chunk còn treo (giới hạn 1 dòng/giây) */
+    chunk_log_flush();
 
     /* [4] Phục vụ HTTP clients */
     handle_http_clients();

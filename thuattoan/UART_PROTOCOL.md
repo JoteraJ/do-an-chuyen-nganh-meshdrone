@@ -44,7 +44,7 @@ Offset  Size    Field     Mô tả
 ```
 
 Tổng độ dài 1 khung = `7 + LEN + 2` byte. `LEN` tối đa cho phép ở middleware:
-131072 byte (đủ dư cho `MAX_FRAME_SIZE = 65536` + 10 byte sub-header ảnh); khung
+131072 byte (đủ dư cho `MAX_FRAME_SIZE = 24576` + 10 byte sub-header ảnh); khung
 báo LEN lớn hơn mức này bị coi là hỏng, middleware bỏ 1 byte MAGIC rồi quét lại.
 
 CRC dùng thuật toán **CRC-16/CCITT-FALSE** — cài đặt tham chiếu:
@@ -106,7 +106,22 @@ ví dụ:
   "psram_free": 234567,
   "node_count": 3,
   "node_ids": [111, 222, 333],
-  "last_self_heal_ms": 842
+  "last_self_heal_ms": 842,
+  "lat_avg_ms": 412.3,
+  "lat_min_ms": 305.0,
+  "lat_max_ms": 580.2,
+  "lat_n": 9,
+  "lat_by_node": { "111": 398.1, "222": 430.7 },
+  "fw": "2026-09-29b",
+  "chunk_err": 0,
+  "tree": { "nodeId": 999, "root": true, "subs": [
+    { "nodeId": 111, "subs": [ { "nodeId": 333 } ] },
+    { "nodeId": 222 } ] },
+  "nodes": [
+    { "id": 111, "fw": "2026-09-30a", "rssi": -58, "heap": 101234, "link_rssi": -61, "link_rssi_src": "ap_parent",  "hop": 1, "age_ms": 820 },
+    { "id": 333, "fw": "2026-09-30a", "rssi": -77, "heap": 99876,  "link_rssi": -79, "link_rssi_src": "ap_parent",  "hop": 2, "age_ms": 1430 },
+    { "id": 222, "fw": null, "rssi": null, "heap": null, "link_rssi": -70, "link_rssi_src": "ap_parent", "hop": 1, "age_ms": null }
+  ]
 }
 ```
 
@@ -116,13 +131,47 @@ ví dụ:
 "self-healing" hội đồng sẽ hỏi (câu hỏi dự kiến #3 trong tài liệu đồ án).
 `-1` nghĩa là chưa từng xảy ra sự kiện rớt kết nối nào.
 
-> **Giới hạn hiện tại (ghi rõ để không "làm giả" số liệu):** `node_ids` là danh
-> sách phẳng các node đang kết nối vào mesh nhìn từ phía Root
-> (`mesh.getNodeList()`), CHƯA có thông tin ai là cha của ai (cây phân cấp) hay
-> RSSI từng liên kết — painlessMesh không lộ RSSI theo node qua API public một
-> cách chắc chắn giữa các bản. Dashboard hiện hiển thị đúng những gì có thật
-> (danh sách phẳng), không vẽ cây giả. Đây là việc còn lại nếu muốn có sơ đồ
-> cây topology đầy đủ như tài liệu mô tả — xem TODO trong `node_root.ino`.
+`lat_*`: latency từ lúc Leaf chụp xong (`capture_us` trong ChunkHeader, lấy
+`mesh.getNodeTime()` ngay sau `esp_camera_fb_get()`) tới lúc Root ghép xong frame
+(`mesh.getNodeTime()` tại Root), gom trong MỘT chu kỳ telemetry rồi reset.
+Mẫu > 10 s bị bỏ (đồng hồ mesh chưa đồng bộ). Chu kỳ không có mẫu:
+`lat_n = 0`, `lat_avg_ms`/`lat_min_ms`/`lat_max_ms` = `null`, `lat_by_node` = `{}`.
+Khóa của `lat_by_node` là node_id dạng chuỗi (JSON bắt buộc khóa là chuỗi).
+
+`fw`: `FW_VERSION` của Root. `chunk_err`: tổng lỗi giải mã/validate chunk tại Root
+từ lúc khởi động (log text của các lỗi này bị giới hạn 1 dòng/giây, bộ đếm thì không).
+
+`tree`: nguyên văn `mesh.asNodeTree().toString()` (= `mesh.subConnectionJson()`,
+painlessMesh Alteriom 2.0.3) nhìn từ Root. `root`/`hasTimeAuthority` chỉ có khi
+`true`, `subs` chỉ có khi khác rỗng.
+
+`nodes`: một phần tử cho mỗi node trong `tree` (trừ Root), cộng node đã rời mesh
+nhưng Root nhận NSTAT chưa quá 60 s (khi đó `hop` = `null`). `hop` = độ sâu trong
+cây (nối thẳng Root = 1). `fw`/`rssi`/`heap`/`age_ms` lấy từ message
+`#NSTAT{...}` mà Leaf gửi `sendSingle()` tới Root mỗi 2 s; `age_ms` = thời gian từ
+lần nhận NSTAT cuối. Node chưa từng gửi NSTAT (firmware cũ): `fw`, `rssi`, `heap`,
+`age_ms` = `null`. `rssi` là `WiFi.RSSI()` của liên kết STA từ Leaf lên node cha
+(`null` nếu Leaf không có liên kết STA).
+
+`link_rssi`: RSSI (dBm) của liên kết nối node đó với node cha trong `tree`;
+`link_rssi_src` cho biết số đo lấy từ đâu. Mỗi liên kết painlessMesh là station
+của một bên nối vào AP của bên kia, nên chỉ một trong hai AP thấy bên kia.
+Root thử theo thứ tự:
+1. `ap_parent` — AP của node cha thấy node con (Root tự đọc
+   `esp_wifi_ap_get_sta_list()`; Leaf gửi `"ap_rssi": {"<nodeId>": dBm}` trong `#NSTAT`).
+2. `ap_child` — AP của node con thấy node cha (liên kết chiều ngược: station của
+   cha nối vào AP của con).
+3. `sta` — `rssi` phía station của node con, chỉ khi xác nhận station đó nối vào
+   cha: AP của con đã biết mà không có cha, và AP của cha chưa biết.
+4. `root_sta` — Root là một đầu và station của Root đang nối vào AP đầu kia
+   (`WiFi.BSSID()` → nodeId) → `WiFi.RSSI()` của Root.
+
+`ap_rssi` của một Leaf chỉ được dùng khi NSTAT của Leaf đó chưa quá 6 s. Không có
+số đo nào thì `link_rssi` và `link_rssi_src` là `null`. MAC station → nodeId:
+painlessMesh tính nodeId = `tcp::encodeNodeId(MAC SoftAP)` (4 byte cuối, big-endian),
+mà station nối vào AP bằng MAC STA; với ESP32 (core 2.0.17, 4 universal MAC) MAC
+SoftAP = MAC STA có byte cuối +1. Mỗi board tự kiểm tra công thức lúc khởi động
+(log `MAC->nodeId ... OK`).
 
 ### 4.3 `0x03 LOG` — dòng log debug (thay thế Serial.printf cũ)
 
