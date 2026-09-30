@@ -291,6 +291,13 @@ struct NodeTrack {
 NodeTrack node_track[TRACK_MAX_NODES];
 uint32_t  silent_events = 0;    // số lần một node chuyển sang im lặng (từ lúc khởi động)
 
+/* age_ms(): tuổi của mốc ref tính tới now, KHÔNG BAO GIỜ âm. ref "sau" now
+ * (ref lấy bằng một lần millis() khác, muộn hơn now) → 0 thay vì 4294967295.
+ * So sánh có dấu nên vẫn đúng khi millis() quay vòng (~49,7 ngày). */
+static inline uint32_t age_ms(uint32_t now, uint32_t ref) {
+    return ((int32_t)(now - ref) < 0) ? 0 : now - ref;
+}
+
 static void record_latency(uint32_t node_id, uint32_t capture_us) {
     // Phép trừ không dấu 32 bit tự xử lý quay vòng của getNodeTime() (~71 phút)
     uint32_t latency_us = (uint32_t)(mesh.getNodeTime() - capture_us);
@@ -577,7 +584,7 @@ static void collect_hops(const painlessmesh::protocol::NodeTree& t, uint8_t dept
 static const ApLinks* ap_links_of(uint32_t x, const ApLinks& root_ap, uint32_t now) {
     if (x == mesh.getNodeId()) return &root_ap;
     const NodeStat* s = find_node_stat(x);
-    if (s && s->ap_known && now - s->rx_ms <= LINK_AP_MAX_AGE_MS) return &s->ap;
+    if (s && s->ap_known && age_ms(now, s->rx_ms) <= LINK_AP_MAX_AGE_MS) return &s->ap;
     return NULL;
 }
 
@@ -626,8 +633,10 @@ static const char* link_rssi_for(uint32_t child, uint32_t parent, const ApLinks&
 
 /* track_find(): ô theo dõi của node id; create = true thì cấp ô mới nếu chưa có.
  * Hết ô → lấy lại ô của node không còn trong mesh (ưu tiên), rồi ô lâu không
- * có chunk nhất. Trả NULL khi không tìm thấy và create = false. */
-static NodeTrack* track_find(uint32_t id, bool create) {
+ * có chunk nhất. Trả NULL khi không tìm thấy và create = false.
+ * now: millis() của lượt cập nhật đang chạy — dùng chung cho seen_ms, để
+ * seen_ms không bao giờ "sau" now của người gọi (lỗi 4294967295 ms, test15). */
+static NodeTrack* track_find(uint32_t id, bool create, uint32_t now) {
     NodeTrack* empty = NULL;
     for (uint8_t i = 0; i < TRACK_MAX_NODES; i++) {
         if (node_track[i].id == id) return &node_track[i];
@@ -636,19 +645,18 @@ static NodeTrack* track_find(uint32_t id, bool create) {
     if (!create) return NULL;
     NodeTrack* t = empty;
     if (t == NULL) {
-        uint32_t now = millis();
         uint32_t oldest_age = 0;
         for (uint8_t i = 0; i < TRACK_MAX_NODES; i++) {
             NodeTrack& c = node_track[i];
             uint32_t ref = (c.last_chunk_ms != 0) ? c.last_chunk_ms : c.seen_ms;
             // Node ngoài mesh coi như "cũ hơn" mọi node trong mesh
-            uint32_t age = (now - ref) / 2 + (c.in_list ? 0 : 0x80000000UL);
+            uint32_t age = age_ms(now, ref) / 2 + (c.in_list ? 0 : 0x80000000UL);
             if (t == NULL || age > oldest_age) { t = &c; oldest_age = age; }
         }
     }
     memset(t, 0, sizeof(*t));
     t->id = id;
-    t->seen_ms = millis();
+    t->seen_ms = now;
     return t;
 }
 
@@ -665,14 +673,14 @@ static void push_heal_event(uint32_t id, uint32_t ms, uint8_t src, uint32_t now)
 /* on_valid_chunk(): gọi cho mỗi chunk đã qua validate header. Chunk đầu tiên
  * sau sự cố (xem khối "Self-healing theo luồng dữ liệu") → ghi 1 heal event. */
 static void on_valid_chunk(uint32_t id) {
-    NodeTrack* t = track_find(id, true);
-    uint32_t now = millis();
-    if (t->heal_src == HEAL_SRC_NONE && t->last_chunk_ms != 0 && now - t->last_chunk_ms > SILENT_NODE_MS) {
+    uint32_t now = millis();   // 1 lần duy nhất, dùng chung cho track_find()
+    NodeTrack* t = track_find(id, true, now);
+    if (t->heal_src == HEAL_SRC_NONE && t->last_chunk_ms != 0 && age_ms(now, t->last_chunk_ms) > SILENT_NODE_MS) {
         t->heal_src = HEAL_SRC_LAST_CHUNK;
         t->heal_start_ms = t->last_chunk_ms;
     }
     if (t->heal_src != HEAL_SRC_NONE) {
-        push_heal_event(id, now - t->heal_start_ms, t->heal_src, now);
+        push_heal_event(id, age_ms(now, t->heal_start_ms), t->heal_src, now);
         t->heal_src = HEAL_SRC_NONE;
     }
     t->last_chunk_ms = now ? now : 1;
@@ -684,7 +692,7 @@ static void on_valid_chunk(uint32_t id) {
 static void append_node_json(char* json, size_t sz, int& pos, bool first,
                              uint32_t id, int hop, const NodeStat* ns, uint32_t now,
                              const char* link_src, int link_rssi) {
-    const NodeTrack* tr = track_find(id, false);
+    const NodeTrack* tr = track_find(id, false, now);
     json_appendf(json, sz, pos, "%s{\"id\":%u,", first ? "" : ",", (unsigned)id);
     if (ns) {
         json_appendf(json, sz, pos, "\"fw\":\"%s\",", ns->fw);
@@ -698,14 +706,14 @@ static void append_node_json(char* json, size_t sz, int& pos, bool first,
     else          json_appendf(json, sz, pos, "\"link_rssi\":null,\"link_rssi_src\":null,");
     if (hop > 0) json_appendf(json, sz, pos, "\"hop\":%d,", hop);
     else         json_appendf(json, sz, pos, "\"hop\":null,");
-    if (tr && tr->last_chunk_ms) json_appendf(json, sz, pos, "\"last_chunk_age_ms\":%u,", (unsigned)(now - tr->last_chunk_ms));
+    if (tr && tr->last_chunk_ms) json_appendf(json, sz, pos, "\"last_chunk_age_ms\":%u,", (unsigned)age_ms(now, tr->last_chunk_ms));
     else                         json_appendf(json, sz, pos, "\"last_chunk_age_ms\":null,");
     json_appendf(json, sz, pos, "\"silent\":%s,", (tr && tr->silent) ? "true" : "false");
     if (ns && ns->has_rst) json_appendf(json, sz, pos, "\"rst\":%d,", (int)ns->rst);
     else                   json_appendf(json, sz, pos, "\"rst\":null,");
     if (ns && ns->has_up)  json_appendf(json, sz, pos, "\"up_s\":%u,", (unsigned)ns->up_s);
     else                   json_appendf(json, sz, pos, "\"up_s\":null,");
-    if (ns) json_appendf(json, sz, pos, "\"age_ms\":%u}", (unsigned)(now - ns->rx_ms));
+    if (ns) json_appendf(json, sz, pos, "\"age_ms\":%u}", (unsigned)age_ms(now, ns->rx_ms));
     else    json_appendf(json, sz, pos, "\"age_ms\":null}");
 }
 
@@ -750,9 +758,9 @@ static void update_node_tracking() {
         t.in_list = in_now;
     }
     for (uint8_t j = 0; j < n; j++) {
-        NodeTrack* t = track_find(ids[j], false);
+        NodeTrack* t = track_find(ids[j], false, now);
         if (t == NULL) {                              // node mới, chưa gửi chunk nào
-            t = track_find(ids[j], true);
+            t = track_find(ids[j], true, now);        // seen_ms = now (cùng mốc, không lấy millis() mới)
             t->in_list = true;
         }
     }
@@ -760,13 +768,16 @@ static void update_node_tracking() {
     for (uint8_t i = 0; i < TRACK_MAX_NODES; i++) {
         NodeTrack& t = node_track[i];
         if (t.id == 0) continue;
+        // Ân hạn: node vừa (lại) vào mesh chưa bị coi là im lặng trong SILENT_NODE_MS
+        // đầu tiên kể từ seen_ms, kể cả khi chunk cuối (trước lúc rời mesh) đã cũ.
         uint32_t ref = t.seen_ms;
         if (t.last_chunk_ms != 0 && (int32_t)(t.last_chunk_ms - ref) > 0) ref = t.last_chunk_ms;
-        bool s = t.in_list && now - ref > SILENT_NODE_MS;
+        uint32_t quiet = age_ms(now, ref);
+        bool s = t.in_list && quiet > SILENT_NODE_MS;
         if (s && !t.silent) {
             silent_events++;
             DBGF("[NODE] %u im lang: con trong mesh nhung %u ms khong co chunk",
-                 (unsigned)t.id, (unsigned)(now - ref));
+                 (unsigned)t.id, (unsigned)quiet);
         }
         t.silent = s;
     }
@@ -881,7 +892,7 @@ static void send_telemetry_frame() {
     }
     for (uint8_t i = 0; i < NSTAT_MAX_NODES; i++) {
         const NodeStat& ns = node_stats[i];
-        if (ns.id == 0 || now - ns.rx_ms > NSTAT_FORGET_MS) continue;
+        if (ns.id == 0 || age_ms(now, ns.rx_ms) > NSTAT_FORGET_MS) continue;
         bool in_tree = false;
         for (uint8_t j = 0; j < tree_n; j++) {
             if (tree_ids[j] == ns.id) { in_tree = true; break; }
@@ -1407,7 +1418,7 @@ void cleanup_stale_frames() {
 
     for (int i = 0; i < MAX_CONCURRENT_FRAMES; i++) {
         if (assemblies[i].active) {
-            uint32_t elapsed = now - assemblies[i].start_time_ms;
+            uint32_t elapsed = age_ms(now, assemblies[i].start_time_ms);
 
             if (elapsed > REASSEMBLY_TIMEOUT_MS) {
                 DBGF("[ASM] TIMEOUT: Huy frame (slot=%d, node=%u, frame=%d, nhan %d/%d, cho %d ms)\n",

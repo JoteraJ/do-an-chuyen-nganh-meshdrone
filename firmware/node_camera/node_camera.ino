@@ -653,7 +653,9 @@ static bool stagger_due() {
  *  ROOT_NODE_ID_OVERRIDE khác 0 → giữ root_id ép cứng, chỉ còn restart.
  * ================================================================ */
 void check_root_watchdog() {
-    uint32_t since = millis() - last_root_beacon_ms;
+    uint32_t now = millis();
+    // Mốc "sau" now (không xảy ra với thứ tự gọi hiện tại) → 0, tránh 4294967295 ms → restart nhầm
+    uint32_t since = ((int32_t)(now - last_root_beacon_ms) < 0) ? 0 : now - last_root_beacon_ms;
 
     if (ROOT_NODE_ID_OVERRIDE == 0 && root_id != 0 && since > ROOT_LOST_RESET_MS) {
         root_id = 0;
