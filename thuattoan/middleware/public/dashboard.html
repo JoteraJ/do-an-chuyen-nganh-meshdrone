@@ -180,14 +180,93 @@
 
     const METRICS = [
       { key: 'fps',        label: 'FPS tổng (Root ghép xong)',     unit: 'fps',     digits: 2 },
-      { key: 'fpsPerNode', label: 'FPS trung bình mỗi leaf',       unit: 'fps',     digits: 2 },
+      { key: 'fpsPerNode', label: 'FPS trung bình mỗi drone',      unit: 'fps',     digits: 2 },
       { key: 'kbps',       label: 'Thông lượng ảnh tới dashboard', unit: 'KB/s',    digits: 1 },
       { key: 'dropPct',    label: 'Tỉ lệ frame bị hủy',            unit: '%',       digits: 1 },
       { key: 'chunksPs',   label: 'Chunk nhận tại Root',           unit: 'chunk/s', digits: 1 },
       { key: 'frameKB',    label: 'Kích thước frame trung bình',   unit: 'KB',      digits: 1 },
       { key: 'heapKB',     label: 'Heap trống tại Root',           unit: 'KB',      digits: 0 },
+      { key: 'latMs',      label: 'Latency chụp → Root ghép xong', unit: 'ms',      digits: 1 },
     ];
+    // Cột phụ trong CSV (theo từng mẫu), không vẽ biểu đồ riêng
+    const CSV_EXTRA = ['latMinMs', 'latMaxMs', 'latN'];
+    // Cột topology trong CSV: [khoá trong mẫu, tên cột]. Chỉ tính node còn trong cây và
+    // NSTAT chưa quá NODE_STALE_MS. hop_max = độ sâu lớn nhất, rssi_min = liên kết yếu nhất (theo link_rssi).
+    // lat_by_node: latency trung bình từng node trong chu kỳ telemetry (telemetry "lat_by_node").
+    const CSV_TOPO = [['hopMax', 'hop_max'], ['rssiMin', 'rssi_min_dbm'], ['hopByNode', 'hop_by_node'], ['rssiByNode', 'rssi_by_node'], ['latByNode', 'lat_by_node']];
+
+    // ── Topology / NSTAT (telemetry "tree" + "nodes", UART_PROTOCOL.md §4.2) ──
+    const RSSI_GOOD = -65;          // > -65 dBm: mạnh
+    const RSSI_WEAK = -80;          // -65 … -80: trung bình; < -80: yếu
+    const NODE_STALE_MS = 6000;     // age_ms lớn hơn → vẽ mờ, "mất tín hiệu"
+    const rssiColor = (r) => (!Number.isFinite(r) ? 'var(--text-3)' : r > RSSI_GOOD ? 'var(--good)' : r >= RSSI_WEAK ? 'var(--warning)' : 'var(--critical)');
+    // RSSI của nhánh node ↔ node cha: "link_rssi" (Root đã ưu tiên số đo phía AP, rồi mới tới phía station).
+    // Root firmware cũ chưa có khóa "link_rssi" → dùng "rssi" phía station.
+    const linkRssi = (n) => (!n ? null : 'link_rssi' in n ? n.link_rssi : n.rssi);
+    // Nguồn số đo link_rssi ("link_rssi_src"; Root 2026-09-30a gửi "link_src" = ap/sta)
+    const LINK_SRC_TEXT = {
+      ap_parent: 'đo tại AP của node cha',
+      ap_child: 'đo tại AP của node con (liên kết chiều ngược)',
+      sta: 'đo tại station của node con',
+      root_sta: 'đo tại station của Root',
+      ap: 'đo tại AP của node cha',
+    };
+    const linkSrcText = (n) => {
+      const src = n?.link_rssi_src ?? n?.link_src;
+      if (src) return `Nguồn RSSI: ${LINK_SRC_TEXT[src] || src}`;
+      if (n && 'link_rssi' in n) return 'Nguồn RSSI: chưa có số đo';
+      return 'Nguồn RSSI: station của node con (Root firmware cũ)';
+    };
+    const shortId = (id) => { const s = String(id); return s.length > 5 ? `…${s.slice(-4)}` : s; };
+    // Node mất tín hiệu: rời cây (hop null) hoặc NSTAT quá cũ. fw = null + age null = chưa từng gửi NSTAT, KHÔNG coi là mất.
+    const nodeLost = (n) => !!n && (n.hop == null || (Number.isFinite(n.age_ms) && n.age_ms > NODE_STALE_MS));
     const HEAL_METRIC = { key: 'heal', label: 'Thời gian self-healing', unit: 'ms', digits: 0 };
+
+    // ── Đánh số drone theo thứ tự kết nối ────────────────────────
+    // Bảng nodeId (chuỗi) → số thứ tự, lưu riêng khỏi STORE_KEY để "Xoá dữ liệu" của tab so sánh
+    // không đụng tới. Node đã có số giữ nguyên số đó mãi (rời mạng rồi vào lại vẫn cùng số);
+    // số của node đã rời mạng không bị tái sử dụng. Root không bao giờ được đánh số.
+    const DRONE_ORDER_KEY = 'meshDashDroneOrder.v1';
+    const KNOWN_ROOT_IDS = ['2846999225'];
+
+    /* Hàm thuần: trả về bảng có thêm số cho các node trong nodeIds chưa có số, theo đúng thứ tự
+     * mảng; số mới = số lớn nhất hiện có + 1. rootIds: các ID cần bỏ qua (ngoài KNOWN_ROOT_IDS).
+     * Không có node mới → trả lại chính `map` (cùng tham chiếu) để React không render/ghi lại vô ích. */
+    function assignDroneNumbers(map, nodeIds, rootIds = []) {
+      const src = map && typeof map === 'object' ? map : {};
+      if (!Array.isArray(nodeIds) || nodeIds.length === 0) return src;
+      const skip = new Set([...KNOWN_ROOT_IDS, ...rootIds.filter((r) => r != null).map(String)]);
+      let next = Object.values(src).reduce((m, v) => (Number.isFinite(v) && v > m ? v : m), 0) + 1;
+      let out = src;
+      nodeIds.forEach((raw) => {
+        if (raw == null || raw === '') return;
+        const id = String(raw);
+        if (skip.has(id) || out[id] != null) return;
+        if (out === src) out = { ...src };
+        out[id] = next++;
+      });
+      return out;
+    }
+
+    // Helper hiển thị DUY NHẤT cho tên drone: "Drone N", chưa có trong bảng → "Drone ?".
+    const droneLabel = (nodeId, order) => {
+      const n = order ? order[String(nodeId)] : undefined;
+      return `Drone ${Number.isFinite(n) ? n : '?'}`;
+    };
+
+    function loadDroneOrder() {
+      try {
+        const d = JSON.parse(localStorage.getItem(DRONE_ORDER_KEY) || '{}');
+        if (!d || typeof d !== 'object' || Array.isArray(d)) return {};
+        // Chỉ nhận số nguyên dương — dữ liệu hỏng thì bỏ mục đó, không làm hỏng cả bảng
+        const out = {};
+        Object.entries(d).forEach(([id, n]) => { if (Number.isInteger(n) && n > 0) out[id] = n; });
+        return out;
+      } catch (e) { return {}; }
+    }
+    function saveDroneOrder(m) {
+      try { localStorage.setItem(DRONE_ORDER_KEY, JSON.stringify(m)); } catch (e) { /* bỏ qua */ }
+    }
 
     // ── Tiện ích ─────────────────────────────────────────────────
     function timeAgo(ts) {
@@ -471,7 +550,7 @@
             <div className="mono text-[11px] text-zinc-500 shrink-0">{metric.unit}</div>
           </div>
           <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" onMouseLeave={() => setHover(null)}
-               role="img" aria-label={`${metric.label}, so sánh 1, 2, 3 leaf`}>
+               role="img" aria-label={`${metric.label}, so sánh 1, 2, 3 drone`}>
             {ticks.map((t, i) => (
               <g key={i}>
                 <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke={i === 0 ? '#3f3f46' : 'var(--grid)'} strokeWidth="1" />
@@ -486,11 +565,11 @@
               const cx = padL + band * i + band / 2;
               const x0 = cx - bw / 2;
               const m = aggMean(row.a);
-              const label = <text x={cx} y={H - 10} textAnchor="middle" fontSize="11" fill="var(--text-2)">{row.leaf} leaf</text>;
+              const label = <text x={cx} y={H - 10} textAnchor="middle" fontSize="11" fill="var(--text-2)">{row.leaf} drone</text>;
               if (m == null) {
                 return (
                   <g key={row.leaf}>
-                    <title>{row.leaf} leaf: chưa có dữ liệu</title>
+                    <title>{`${row.leaf} drone: chưa có dữ liệu`}</title>
                     <rect x={x0 + 0.5} y={y0 - ghostH} width={bw - 1} height={ghostH - 0.5} rx="3"
                           fill="none" stroke="rgba(255,255,255,.1)" strokeWidth="1" strokeDasharray="4 3" />
                     {label}
@@ -529,7 +608,7 @@
                  style={{ left: `${((padL + band * hover + band / 2) / W) * 100}%`, top: 34, transform: 'translateX(-50%)' }}>
               <div className="flex items-center gap-1.5 text-zinc-200">
                 <span className="w-2 h-2 rounded-sm" style={{ background: LEAF_COLOR[rows[hover].leaf] }}></span>
-                {rows[hover].leaf} leaf
+                {rows[hover].leaf} drone
               </div>
               <div className="text-zinc-400">TB&nbsp; <span className="text-zinc-100">{fmt(aggMean(rows[hover].a), metric.digits)}</span> {metric.unit}</div>
               <div className="text-zinc-400">min {fmt(rows[hover].a.min, metric.digits)} · max {fmt(rows[hover].a.max, metric.digits)}</div>
@@ -646,7 +725,7 @@
                 <div className="text-zinc-400">{new Date(hp.s.t).toLocaleString('vi-VN')}</div>
                 <div className="flex items-center gap-1.5 text-zinc-200">
                   <span className="w-2 h-2 rounded-sm" style={{ background: LEAF_COLOR[hp.s.leaf] }}></span>
-                  {hp.s.leaf} leaf · {fmt(hp.v, metric.digits)} {metric.unit}
+                  {hp.s.leaf} drone · {fmt(hp.v, metric.digits)} {metric.unit}
                 </div>
               </div>
             )}
@@ -663,6 +742,25 @@
         LEAVES.forEach((l) => { o[l] = aggOf(stats[l].heal); });
         return o;
       }, [stats]);
+      // Latency theo hop: ghép lat_by_node với hop_by_node của CÙNG mẫu. Mỗi cặp (mẫu, node) có cả
+      // latency lẫn hop là 1 giá trị; node thiếu một trong hai thì bỏ qua.
+      const latByHop = useMemo(() => {
+        const o = {};   // hop -> leaf -> [ms]
+        timeline.forEach((s) => {
+          if (!s.latByNode || !s.hopByNode) return;
+          const hopOf = {};
+          s.hopByNode.split(';').forEach((p) => { const [id, h] = p.split(':'); hopOf[id] = Number(h); });
+          s.latByNode.split(';').forEach((p) => {
+            const [id, v] = p.split(':');
+            const h = hopOf[id], ms = Number(v);
+            if (!Number.isFinite(h) || !Number.isFinite(ms)) return;
+            ((o[h] ||= {})[s.leaf] ||= []).push(ms);
+          });
+        });
+        return Object.keys(o).map(Number).sort((a, b) => a - b).map((h) => ({
+          hop: h, aggs: Object.fromEntries(LEAVES.map((l) => [l, aggOf(o[h][l] || [])])),
+        }));
+      }, [timeline]);
       const metricAggs = (key) => {
         const o = {};
         LEAVES.forEach((l) => { o[l] = stats[l].metrics[key]; });
@@ -670,9 +768,14 @@
       };
 
       const exportCsv = () => {
-        const head = ['time', 'leaf', ...METRICS.map((m) => m.key)];
+        const cols = [...METRICS.map((m) => m.key), ...CSV_EXTRA];
+        const head = ['time', 'leaf', ...cols, ...CSV_TOPO.map(([, name]) => name)];
         const lines = [head.join(',')];
-        timeline.forEach((s) => lines.push([new Date(s.t).toISOString(), s.leaf, ...METRICS.map((m) => (Number.isFinite(s[m.key]) ? s[m.key].toFixed(4) : ''))].join(',')));
+        timeline.forEach((s) => lines.push([
+          new Date(s.t).toISOString(), s.leaf,
+          ...cols.map((k) => (Number.isFinite(s[k]) ? s[k].toFixed(4) : '')),
+          ...CSV_TOPO.map(([k]) => (s[k] == null ? '' : String(s[k]))),
+        ].join(',')));
         lines.push('');
         lines.push('summary_leaf,metric,n,mean,sd,min,max');
         LEAVES.forEach((l) => {
@@ -719,7 +822,7 @@
               <InfoTip label="Cách đo">
                 Cách đo: bật lần lượt 1, 2, 3 Camera Node; mỗi cấu hình để chạy vài phút. Mỗi lần Root gửi telemetry, dashboard tính
                 tốc độ thay đổi của <span className="mono">frames_ok / frames_drop / chunks</span> so với lần trước và gán mẫu vào nhóm theo
-                <span className="mono"> node_count</span>. Các mẫu lúc số leaf đang thay đổi hoặc Root khởi động lại bị bỏ qua.
+                <span className="mono"> node_count</span>. Các mẫu lúc số drone đang thay đổi hoặc Root khởi động lại bị bỏ qua.
                 Cột = giá trị trung bình, vạch = min–max. Dữ liệu lưu trong trình duyệt này.
               </InfoTip>
             </div>
@@ -734,21 +837,21 @@
             </div>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <span className={`chip mono ${leafWarn ? 'border-yellow-400/60 text-yellow-300' : 'border-white/10 text-zinc-300'}`}>
-                LEAF HIỆN TẠI:
+                DRONE HIỆN TẠI:
                 <span className={`font-semibold ${leafWarn ? '' : 'text-[color:var(--accent)]'}`}>{currentLeaf ?? '—'}</span>
                 {leafWarn && <span className="font-normal">· ngoài 1–3, không ghi</span>}
               </span>
               {LEAVES.map((l) => (
                 <span key={l} className="chip mono border-white/10 text-zinc-300">
                   <span className="w-2 h-2 rounded-full" style={{ background: LEAF_COLOR[l] }} aria-hidden="true"></span>
-                  {l} leaf · <span className="text-zinc-50 font-semibold">{stats[l].samples}</span> mẫu
+                  {l} drone · <span className="text-zinc-50 font-semibold">{stats[l].samples}</span> mẫu
                 </span>
               ))}
             </div>
           </div>
 
           {/* Biểu đồ so sánh */}
-          <div className="panel-h px-1 pt-1">So sánh trung bình theo số leaf</div>
+          <div className="panel-h px-1 pt-1">So sánh trung bình theo số drone</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {METRICS.map((m) => <BarCompare key={m.key} metric={m} aggs={metricAggs(m.key)} />)}
             <BarCompare metric={HEAL_METRIC} aggs={healAggs} nLabel="sự kiện" />
@@ -759,11 +862,12 @@
           <div className="flex flex-col gap-3">
             <Timeline timeline={timeline} metric={METRICS[0]} />
             <Timeline timeline={timeline} metric={METRICS[2]} />
+            <Timeline timeline={timeline} metric={METRICS.find((m) => m.key === 'latMs')} />
           </div>
 
           {/* Bảng số liệu */}
           <div className="panel">
-            <div className="panel-h px-3 pt-3 pb-2">Bảng so sánh (trung bình ± độ lệch chuẩn, % so với 1 leaf)</div>
+            <div className="panel-h px-3 pt-3 pb-2">Bảng so sánh (trung bình ± độ lệch chuẩn, % so với 1 drone)</div>
             <div className="overflow-auto max-h-[70vh] rounded-b-lg">
               <table className="w-full mono text-[12px]">
                 <thead>
@@ -772,7 +876,7 @@
                     <th className="sticky top-0 z-[1] text-left font-normal px-3 py-2 border-b border-white/10" style={thStyle}>Đơn vị</th>
                     {LEAVES.map((l) => (
                       <th key={l} className="sticky top-0 z-[1] text-right font-normal px-3 py-2 border-b border-white/10" style={thStyle}>
-                        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: LEAF_COLOR[l] }}></span>{l} leaf</span>
+                        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: LEAF_COLOR[l] }}></span>{l} drone</span>
                       </th>
                     ))}
                   </tr>
@@ -807,12 +911,167 @@
               </table>
             </div>
           </div>
+
+          {/* Bảng phụ: latency theo hop */}
+          <div className="panel">
+            <div className="panel-h px-3 pt-3 pb-2">Latency trung bình theo hop (ms, trung bình ± độ lệch chuẩn)</div>
+            {latByHop.length === 0 ? (
+              <div className="px-3 pb-3 text-[12px] text-zinc-500">chưa có dữ liệu — cần mẫu có cả lat_by_node và hop_by_node</div>
+            ) : (
+              <div className="overflow-auto rounded-b-lg">
+                <table className="w-full mono text-[12px]">
+                  <thead>
+                    <tr className="text-zinc-500">
+                      <th className="text-left font-normal px-3 py-2 border-b border-white/10">Hop</th>
+                      {LEAVES.map((l) => (
+                        <th key={l} className="text-right font-normal px-3 py-2 border-b border-white/10">
+                          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: LEAF_COLOR[l] }}></span>{l} drone</span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {latByHop.map((r) => (
+                      <tr key={r.hop} className={`${rowCls} text-zinc-200`}>
+                        <td className="px-3 py-1.5 font-sans">hop {r.hop}</td>
+                        {LEAVES.map((l) => (
+                          <td key={l} className="px-3 py-1.5 text-right whitespace-nowrap">
+                            {cell(r.aggs[l], 1)}{r.aggs[l] && <span className="text-zinc-500 text-[11px]"> · n={r.aggs[l].n}</span>}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="px-3 py-2 text-[11px] text-zinc-500 font-sans">n = số cặp (chu kỳ telemetry, node) có cả latency lẫn hop.</div>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
 
+    // ── Cây topology (SVG) ───────────────────────────────────────
+    // Bố cục: mỗi node lá chiếm 1 cột, node cha đặt giữa các con; mỗi hop 1 hàng.
+    const TREE_SLOT_W = 112, TREE_ROW_H = 84, TREE_BOX_W = 102, TREE_BOX_H = 54, TREE_PAD = 6, TREE_MAX_DEPTH = 8;
+
+    function layoutTree(tree) {
+      const nodes = [], edges = [];
+      let nextSlot = 0;
+      const walk = (t, depth) => {
+        const n = { id: t.nodeId, depth, isRoot: depth === 0 };
+        const kids = depth < TREE_MAX_DEPTH && Array.isArray(t.subs) ? t.subs.filter((s) => s && typeof s.nodeId === 'number') : [];
+        const placed = kids.map((k) => walk(k, depth + 1));
+        n.slot = placed.length ? (placed[0].slot + placed[placed.length - 1].slot) / 2 : nextSlot++;
+        nodes.push(n);
+        placed.forEach((c) => edges.push([n, c]));
+        return n;
+      };
+      walk(tree, 0);
+      return { nodes, edges, slots: nextSlot, depthMax: Math.max(...nodes.map((n) => n.depth)) };
+    }
+
+    function TopologyTree({ telemetry, nodeById, order }) {
+      // Tên trong tooltip: Root giữ "Root", drone → "Drone N (ID …)"
+      const nameOf = (n) => (n.isRoot ? `Root (ID ${n.id})` : `${droneLabel(n.id, order)} (ID ${n.id})`);
+      if (!telemetry) return <div className="mono text-[12px] text-zinc-500 px-1">chưa có dữ liệu</div>;
+      const tree = telemetry.tree;
+      if (!tree || typeof tree.nodeId !== 'number') {
+        return <div className="mono text-[12px] text-zinc-500 px-1">chưa có dữ liệu cây — Root chưa gửi "tree" (firmware Root cũ?)</div>;
+      }
+
+      const { nodes, edges, slots, depthMax } = layoutTree(tree);
+      const inTree = new Set(nodes.map((n) => String(n.id)));
+      // Node đã rời mesh nhưng Root còn giữ NSTAT (hop = null) — vẽ ở hàng riêng, không có cạnh
+      const detached = (telemetry.nodes || []).filter((n) => !inTree.has(String(n.id)));
+      const detRow = depthMax + 1;
+      detached.forEach((n, i) => nodes.push({ id: n.id, depth: detRow, slot: i, detached: true }));
+
+      const cols = Math.max(1, slots, detached.length);
+      const rows = detached.length ? detRow + 1 : depthMax + 1;
+      const W = cols * TREE_SLOT_W + TREE_PAD * 2;
+      const H = rows * TREE_ROW_H - (TREE_ROW_H - TREE_BOX_H) + TREE_PAD * 2 + (detached.length ? 14 : 0);
+      const cx = (n) => TREE_PAD + n.slot * TREE_SLOT_W + TREE_SLOT_W / 2;
+      const top = (n) => TREE_PAD + n.depth * TREE_ROW_H + (n.detached ? 14 : 0);
+
+      return (
+        <div className="flex flex-col gap-1.5">
+          <svg viewBox={`0 0 ${W} ${H}`} className="block mx-auto h-auto" style={{ width: '100%', maxWidth: W }}
+               role="img" aria-label="Cây topology mesh">
+            {edges.map(([p, c]) => {
+              const info = nodeById[String(c.id)];
+              const x1 = cx(p), y1 = top(p) + TREE_BOX_H, x2 = cx(c), y2 = top(c), ym = (y1 + y2) / 2;
+              const d = `M${x1},${y1} C${x1},${ym} ${x2},${ym} ${x2},${y2}`;
+              const lr = linkRssi(info);
+              return (
+                <g key={`${p.id}-${c.id}`}>
+                  <path d={d} fill="none"
+                        stroke={rssiColor(lr)} strokeWidth="2" strokeDasharray={Number.isFinite(lr) ? undefined : '4 3'}
+                        opacity={nodeLost(info) ? 0.3 : 0.9} />
+                  {/* Vùng rê chuột rộng hơn nét vẽ để dễ trỏ vào nhánh */}
+                  <path d={d} fill="none" stroke="transparent" strokeWidth="12" style={{ pointerEvents: 'stroke' }}>
+                    <title>{`${nameOf(p)} ↔ ${nameOf(c)}: ${Number.isFinite(lr) ? `${lr} dBm` : 'chưa có RSSI'}\n${linkSrcText(info)}`}</title>
+                  </path>
+                </g>
+              );
+            })}
+            {detached.length > 0 && (
+              <text x={TREE_PAD} y={top({ depth: detRow }) + 10} fontSize="10" fill="var(--text-3)">rời mesh (NSTAT gần đây)</text>
+            )}
+            {nodes.map((n) => {
+              const info = n.isRoot ? null : nodeById[String(n.id)];
+              const lost = !n.isRoot && nodeLost(info);
+              const x = cx(n) - TREE_BOX_W / 2, y = top(n);
+              const fw = n.isRoot ? telemetry.fw : info?.fw;
+              const line2 = n.isRoot
+                ? `ROOT · layer ${telemetry.layer ?? 0}`
+                : `${Number.isFinite(linkRssi(info)) ? `${linkRssi(info)} dBm` : '— dBm'} · hop ${info?.hop ?? '—'}`;
+              const line3 = lost ? ['mất tín hiệu', 'var(--critical)']
+                : fw ? [`fw ${fw}`, 'var(--text-2)'] : ['firmware cũ?', 'var(--warning)'];
+              const age = Number.isFinite(info?.age_ms) ? ` · NSTAT ${(info.age_ms / 1000).toFixed(1)}s trước` : '';
+              return (
+                <g key={`${n.detached ? 'd' : 't'}-${n.id}`} opacity={lost ? 0.4 : 1}>
+                  <title>{`${nameOf(n)}${age}${n.isRoot ? '' : `\n${linkSrcText(info)}`}`}</title>
+                  <rect x={x} y={y} width={TREE_BOX_W} height={TREE_BOX_H} rx="6" fill="var(--surface-2)"
+                        stroke={n.isRoot ? 'var(--accent)' : lost ? '#52525B' : rssiColor(linkRssi(info))} strokeWidth="1.2" />
+                  <text x={x + 8} y={y + 16} fontSize="11" fontWeight="600" fill="var(--text)" className="mono">
+                    {n.isRoot ? shortId(n.id) : droneLabel(n.id, order).toUpperCase()}
+                    {!n.isRoot && <tspan fontSize="9" fontWeight="400" fill="var(--text-3)">{` ${shortId(n.id)}`}</tspan>}
+                  </text>
+                  <text x={x + 8} y={y + 31} fontSize="10" fill={n.isRoot ? 'var(--accent)' : rssiColor(linkRssi(info))} className="mono">{line2}</text>
+                  <text x={x + 8} y={y + 45} fontSize="10" fill={line3[1]} className="mono">{line3[0]}</text>
+                </g>
+              );
+            })}
+          </svg>
+          {edges.length === 0 && detached.length === 0 && (
+            <div className="mono text-[12px] text-zinc-500 px-1">chưa có node nào tham gia mesh</div>
+          )}
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-zinc-400 mono px-1">
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-0.5" style={{ background: 'var(--good)' }}></span>&gt; {RSSI_GOOD}</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-0.5" style={{ background: 'var(--warning)' }}></span>{RSSI_GOOD} … {RSSI_WEAK}</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-0.5" style={{ background: 'var(--critical)' }}></span>&lt; {RSSI_WEAK} dBm</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 border-t border-dashed" style={{ borderColor: 'var(--text-3)' }}></span>chưa có RSSI</span>
+          </div>
+        </div>
+      );
+    }
+
+    // Dòng RSSI · hop · fw cho ô camera. info = phần tử telemetry.nodes của node đó (có thể undefined).
+    function NodeInfoLine({ info, compact }) {
+      if (!info) return <span className="text-zinc-500">RSSI/hop/fw: chưa có dữ liệu</span>;
+      const rssi = Number.isFinite(linkRssi(info)) ? `${linkRssi(info)} dBm` : '— dBm';
+      return (
+        <span>
+          <span style={{ color: rssiColor(linkRssi(info)) }}>{rssi}</span>
+          {!compact && <span> · hop {info.hop ?? '—'} · </span>}
+          {!compact && (info.fw ? <span>fw {info.fw}</span> : <span style={{ color: 'var(--warning)' }}>firmware cũ?</span>)}
+        </span>
+      );
+    }
+
     // ── Ô hiển thị một luồng camera ─────────────────────────────
-    function FrameTile({ nodeId, f, big, onClick }) {
+    function FrameTile({ nodeId, f, latMs, info, order, big, onClick }) {
       const stale = Date.now() - f.ts > STALE_FRAME_MS;
       const goFull = (e) => {
         e.stopPropagation();
@@ -824,7 +1083,7 @@
         <div data-tile onClick={onClick}
              className={`relative w-full h-full min-h-0 min-w-0 overflow-hidden rounded-md transition-shadow ${big ? '' : 'cursor-pointer hover:ring-1 hover:ring-white/20'}`}
              style={{ background: 'var(--surface-2)' }}>
-          <img src={`data:image/jpeg;base64,${f.jpegBase64}`} alt={`Camera node ${nodeId}`}
+          <img src={`data:image/jpeg;base64,${f.jpegBase64}`} alt={`Camera ${droneLabel(nodeId, order)} (ID ${nodeId})`}
                className={`w-full h-full object-contain ${stale ? 'opacity-20' : ''}`} />
           {stale && (
             <div className="absolute inset-0 opacity-95">
@@ -832,14 +1091,20 @@
             </div>
           )}
           <div className="absolute top-0 left-0 right-0 flex justify-between items-start p-1.5 pointer-events-none">
-            <div className="mono text-[11px] font-medium bg-black/70 text-zinc-100 px-1.5 py-0.5 rounded">
-              NODE {nodeId} · #{f.frameId}
+            <div className="flex flex-col items-start gap-0.5 min-w-0">
+              <div className="mono bg-black/70 px-1.5 py-0.5 rounded leading-tight">
+                <div className="text-[11px] font-medium text-zinc-100">{droneLabel(nodeId, order).toUpperCase()} · #{f.frameId}</div>
+                <div className="text-[9px] text-zinc-500">ID {nodeId}</div>
+              </div>
+              <div className="mono text-[11px] bg-black/70 text-zinc-300 px-1.5 py-0.5 rounded truncate max-w-full">
+                <NodeInfoLine info={info} compact={!big} />
+              </div>
             </div>
             {big && <StatusBadge state={stale ? 'stale' : 'ok'} label={stale ? 'mất tín hiệu' : 'live'} className="!bg-black/70" />}
           </div>
           <div className="absolute bottom-0 left-0 right-0 flex justify-between items-end p-1.5">
             <div className="mono text-[11px] bg-black/70 text-zinc-300 px-1.5 py-0.5 rounded pointer-events-none truncate">
-              {f.fps > 0 ? `${f.fps.toFixed(1)} fps` : '— fps'} · {(f.bytes / 1024).toFixed(1)} KB · {timeAgo(f.ts)}
+              {f.fps > 0 ? `${f.fps.toFixed(1)} fps` : '— fps'} · {(f.bytes / 1024).toFixed(1)} KB · {latMs != null ? `lat ${latMs.toFixed(0)} ms` : 'lat: chưa có dữ liệu'} · {timeAgo(f.ts)}
             </div>
             <button onClick={goFull} title="Toàn màn hình"
                     className="mono text-[11px] bg-black/70 text-zinc-300 hover:text-white px-1.5 py-0.5 rounded">
@@ -878,6 +1143,11 @@
       const recordingRef = useRef(true);
       const setRecording = (v) => { recordingRef.current = v; setRecordingState(v); };
 
+      // ── Số thứ tự drone (meshDashDroneOrder.v1, tách khỏi số liệu so sánh) ──
+      const [droneOrder, setDroneOrder] = useState(loadDroneOrder);
+      const rootIdRef = useRef(null);            // Root ID học từ telemetry.tree.nodeId
+      useEffect(() => { saveDroneOrder(droneOrder); }, [droneOrder]);
+
       const frameTimesRef = useRef([]);          // ước lượng FPS tổng
       const nodeTimesRef = useRef({});           // ước lượng FPS từng node
       const lastSelfHealRef = useRef(undefined);  // chỉ log khi self-heal THAY ĐỔI
@@ -886,7 +1156,7 @@
       const framesAccRef = useRef(0);
 
       // Lịch sử ngắn (HIST_MAX điểm) cho sparkline + khoảng min/max trong phiên
-      const histRef = useRef({ fps: [], drop: [], heap: [] });
+      const histRef = useRef({ fps: [], drop: [], heap: [], lat: [] });
       const rangeRef = useRef({ heap: null, psram: null, fpsMax: 0 });
       const pushHist = (key, v) => {
         if (!Number.isFinite(v)) return;
@@ -902,6 +1172,26 @@
       const addLog = (msg) => {
         setLogs((prev) => [{ time: new Date().toLocaleTimeString('vi-VN'), msg }, ...prev].slice(0, 50));
       };
+
+      // Trang đang mở có phải bản cũ không? Socket.IO tự nối lại khi middleware khởi động lại,
+      // nên tab cũ vẫn chạy JS cũ (vd CSV thiếu cột mới) dù file trên đĩa đã đổi. So Last-Modified
+      // của chính trang lúc mở với hiện tại, lệch → hiện banner nhắc tải lại.
+      const [pageOutdated, setPageOutdated] = useState(false);
+      useEffect(() => {
+        if (!HAS_IO) return;
+        let base = null;
+        const check = () => fetch(window.location.pathname, { method: 'HEAD', cache: 'no-store' })
+          .then((r) => {
+            const lm = r.headers.get('last-modified');
+            if (!lm) return;
+            if (base == null) base = lm;
+            else if (lm !== base) setPageOutdated(true);
+          })
+          .catch(() => { /* middleware tạm tắt — thử lại lần sau */ });
+        check();
+        const id = setInterval(check, 15000);
+        return () => clearInterval(id);
+      }, []);
 
       useEffect(() => { saveStore(compare); }, [compare]);
       useEffect(() => {
@@ -942,6 +1232,10 @@
           setTelemetryAt(now);
           setSerialConnected(true);
 
+          // Đánh số drone mới theo thứ tự node_ids (Root bỏ qua)
+          if (typeof t.tree?.nodeId === 'number') rootIdRef.current = t.tree.nodeId;
+          setDroneOrder((m) => assignDroneNumbers(m, t.node_ids, [rootIdRef.current]));
+
           const leaf = typeof t.node_count === 'number' ? t.node_count : (Array.isArray(t.node_ids) ? t.node_ids.length : null);
 
           // Self-healing: chỉ log/ghi khi giá trị thay đổi thật
@@ -966,6 +1260,7 @@
           // Lịch sử cho sparkline / thanh tiến trình (luôn ghi, không phụ thuộc nút "Đang ghi")
           if (typeof t.heap_free === 'number') { pushHist('heap', t.heap_free / 1024); extendRange('heap', t.heap_free); }
           if (typeof t.psram_free === 'number') extendRange('psram', t.psram_free);
+          if (t.lat_n > 0) pushHist('lat', t.lat_avg_ms);
           if (prev) {
             const dtw = (now - prev.at) / 1000;
             if (dtw > 0.3 && dtw < 10) {
@@ -991,6 +1286,19 @@
           if (dOk + dDrop > 0) s.dropPct = (100 * dDrop) / (dOk + dDrop);
           if (nFrames > 0) s.frameKB = bytes / 1024 / nFrames;
           if (typeof t.heap_free === 'number') s.heapKB = t.heap_free / 1024;
+          if (t.lat_n > 0 && Number.isFinite(t.lat_avg_ms)) {
+            s.latMs = t.lat_avg_ms; s.latMinMs = t.lat_min_ms; s.latMaxMs = t.lat_max_ms; s.latN = t.lat_n;
+          }
+          // Topology cho CSV: chỉ node còn trong cây và NSTAT còn mới; không có thì để trống
+          const live = Array.isArray(t.nodes) ? t.nodes.filter((n) => n && !nodeLost(n)) : [];
+          const hops = live.filter((n) => Number.isFinite(n.hop));
+          const rssis = live.filter((n) => Number.isFinite(linkRssi(n)));
+          if (hops.length) { s.hopMax = Math.max(...hops.map((n) => n.hop)); s.hopByNode = hops.map((n) => `${n.id}:${n.hop}`).join(';'); }
+          if (t.lat_by_node && typeof t.lat_by_node === 'object') {
+            const lat = Object.entries(t.lat_by_node).filter(([, v]) => Number.isFinite(v));
+            if (lat.length) s.latByNode = lat.map(([id, v]) => `${id}:${v.toFixed(1)}`).join(';');
+          }
+          if (rssis.length) { s.rssiMin = Math.min(...rssis.map(linkRssi)); s.rssiByNode = rssis.map((n) => `${n.id}:${linkRssi(n)}`).join(';'); }
           setCompare((st) => addSample(st, s));
         });
 
@@ -1006,6 +1314,7 @@
           while (nt.length > 10) nt.shift();
           const nodeFps = nt.length >= 2 ? (1000 * (nt.length - 1)) / (nt[nt.length - 1] - nt[0] || 1) : 0;
 
+          setDroneOrder((m) => assignDroneNumbers(m, [data.nodeId], [rootIdRef.current]));
           setFrameCount((prev) => prev + 1);
           setFrameByNode((prev) => ({
             ...prev,
@@ -1034,11 +1343,25 @@
         setCompare({ stats: emptyStats(), timeline: [] });
       };
 
-      // node_ids là danh sách PHẲNG (UART_PROTOCOL.md §4.2) — chưa có quan hệ cha/con
       const now = Date.now();
       const nodeIds = telemetry?.node_ids || [];
+      const telFresh = socketConnected && telemetryAt != null && now - telemetryAt <= STALE_TELEMETRY_MS;
+
+      // "Đánh số lại": xoá bảng, đánh lại từ 1 theo node_ids đang online (telemetry còn mới).
+      // Không đụng số liệu so sánh (STORE_KEY).
+      const renumberDrones = () => {
+        if (!window.confirm('Xoá bảng số thứ tự drone và đánh số lại từ 1 theo các drone đang online?')) return;
+        const online = telFresh && Array.isArray(telemetry?.node_ids) ? telemetry.node_ids : [];
+        setDroneOrder(assignDroneNumbers({}, online, [rootIdRef.current]));
+        addLog(`Đánh số lại drone: ${online.length} drone đang online.`);
+      };
+      // Trạng thái từng node (NSTAT do Root gom, UART_PROTOCOL.md §4.2 "nodes"), tra theo id dạng chuỗi
+      const nodeById = {};
+      (Array.isArray(telemetry?.nodes) ? telemetry.nodes : []).forEach((n) => { if (n && n.id != null) nodeById[String(n.id)] = n; });
       const leafCount = telemetry ? (typeof telemetry.node_count === 'number' ? telemetry.node_count : nodeIds.length) : null;
-      const frames = Object.entries(frameByNode);
+      // Card Media stream theo số drone tăng dần; chưa có số ("Drone ?") xếp cuối, rồi theo node ID
+      const droneNo = (id) => (Number.isFinite(droneOrder[id]) ? droneOrder[id] : Infinity);
+      const frames = Object.entries(frameByNode).sort(([a], [b]) => droneNo(a) - droneNo(b) || Number(a) - Number(b));
       const focusEntry = frames.find(([id]) => id === focusId) || frames[0];
 
       // FPS hiển thị: về 0 khi quá STALE_FRAME_MS không có frame mới (đo thật, không giữ số cũ)
@@ -1047,6 +1370,12 @@
 
       const dropPctTotal = telemetry && (telemetry.frames_ok + telemetry.frames_drop) > 0
         ? (100 * telemetry.frames_drop) / (telemetry.frames_ok + telemetry.frames_drop) : null;
+      // Latency: chỉ hiển thị khi chu kỳ telemetry gần nhất có mẫu thật (lat_n > 0)
+      const latHas = !!telemetry && telemetry.lat_n > 0 && Number.isFinite(telemetry.lat_avg_ms);
+      const latOf = (id) => {
+        const v = telemetry?.lat_by_node?.[id];
+        return Number.isFinite(v) ? v : null;
+      };
       const selfHeal = telemetry && typeof telemetry.last_self_heal_ms === 'number' && telemetry.last_self_heal_ms >= 0
         ? `${telemetry.last_self_heal_ms} ms` : (telemetry ? 'chưa xảy ra' : null);
 
@@ -1097,12 +1426,20 @@
             </div>
           )}
 
+          {pageOutdated && (
+            <div className="shrink-0 px-4 py-2 text-[12px] text-center flex flex-wrap justify-center items-center gap-2"
+                 style={{ background: 'rgba(250, 204, 21, .12)', color: 'var(--warning)' }}>
+              File dashboard trên máy đã được cập nhật sau khi mở trang này — trang đang chạy mã cũ (CSV/biểu đồ có thể thiếu cột mới).
+              <button onClick={() => window.location.reload()} className="btn mono !py-0.5">Tải lại trang</button>
+            </div>
+          )}
+
           {/* HEADER */}
           <header className="shrink-0 min-h-[52px] flex flex-wrap items-center gap-x-4 gap-y-2 px-3 sm:px-4 py-2"
                   style={{ background: 'var(--surface-1)', boxShadow: 'var(--shadow)' }}>
             <h1 className="text-[15px] font-semibold text-zinc-50 whitespace-nowrap">Dashboard Mesh Drone</h1>
             <nav className="seg">
-              {[['live', 'Live'], ['compare', 'So sánh 1/2/3 leaf']].map(([id, label]) => (
+              {[['live', 'Live'], ['compare', 'Bảng so sánh']].map(([id, label]) => (
                 <button key={id} onClick={() => setTab(id)} aria-pressed={tab === id}>{label}</button>
               ))}
             </nav>
@@ -1111,8 +1448,12 @@
               <StatusBadge {...mwBadge} />
               <span className="hidden md:inline label ml-2">Root UART</span>
               <StatusBadge {...rootBadge} />
-              <span className="mono text-[12px] font-semibold px-2.5 py-0.5 rounded-full ml-1" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
-                LEAF {leafCount ?? '—'}
+              {/* Chỉ hiện số khi telemetry còn mới (middleware + Root đang nhận); không thì xám, không số */}
+              <span className="mono text-[12px] font-semibold px-2.5 py-0.5 rounded-full ml-1 whitespace-nowrap"
+                    style={telFresh && leafCount != null
+                      ? { background: 'var(--accent-soft)', color: 'var(--accent)' }
+                      : { background: 'rgba(255, 255, 255, .06)', color: 'var(--text-3)' }}>
+                Tổng {telFresh && leafCount != null ? leafCount : '–'} Drone
               </span>
             </div>
           </header>
@@ -1128,7 +1469,11 @@
               {/* LEFT: THÔNG SỐ */}
               <aside className="flex flex-col gap-3 min-h-0 min-w-0 lg:overflow-y-auto lg:pr-1">
                 <section className="panel p-3 flex flex-col gap-1.5">
-                  <div className="panel-h mb-1">Kết nối</div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="panel-h">Kết nối</span>
+                    <button onClick={renumberDrones} className="btn mono !px-2 !py-0.5 !text-[11px]"
+                            title="Xoá bảng số thứ tự drone, đánh lại từ 1 theo các drone đang online">Đánh số lại</button>
+                  </div>
                   <Row k="Middleware" badge={<StatusBadge {...mwBadge} />} />
                   <Row k="Root UART" badge={<StatusBadge {...rootBadge} />} />
                   <Row k="Cổng" v={serialInfo ? `${serialInfo.portName} @ ${serialInfo.baudRate}` : null} />
@@ -1139,7 +1484,7 @@
                   <div className="panel-h mb-1">Telemetry · Root Node</div>
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="nested px-2.5 py-2">
-                      <div className="label">Leaf</div>
+                      <div className="label">Drone</div>
                       {leafCount != null
                         ? <div className="mono text-[20px] font-semibold" style={{ color: 'var(--accent)' }}>{leafCount}</div>
                         : <div className="text-[12px] text-zinc-500 leading-7">chưa có dữ liệu</div>}
@@ -1158,6 +1503,9 @@
                               valueColor={dropColor(dropPctTotal)} spark={histRef.current.drop} sparkColor={dropColor(dropPctTotal)}
                               bar={dropPctTotal != null ? dropPctTotal / 100 : null} barColor={dropColor(dropPctTotal)}
                               note={dropPctTotal != null ? 'thang 0–100% · sparkline: tỉ lệ từng chu kỳ telemetry' : null} />
+                  <MetricCard label="Latency (chụp → ghép xong)" value={latHas ? telemetry.lat_avg_ms.toFixed(1) : null} unit="ms"
+                              spark={histRef.current.lat} sparkColor="var(--accent)"
+                              note={latHas ? `min ${fmt(telemetry.lat_min_ms, 1)} · max ${fmt(telemetry.lat_max_ms, 1)} ms · ${telemetry.lat_n} frame / chu kỳ` : null} />
                   <MetricCard label="Heap trống" value={telemetry?.heap_free != null ? Math.round(telemetry.heap_free / 1024) : null} unit="KB"
                               spark={histRef.current.heap} sparkColor="#A1A1AA" bar={heapBar.frac} barColor="var(--accent)" note={heapBar.note} />
                   <MetricCard label="PSRAM trống" value={telemetry?.psram_free != null ? Math.round(telemetry.psram_free / 1024) : null} unit="KB"
@@ -1169,31 +1517,11 @@
                 </section>
 
                 <section className="panel p-3 flex flex-col gap-1.5">
-                  <div className="panel-h mb-1">Topology</div>
-                  <div className="nested px-2.5 py-1.5 flex justify-between items-center">
-                    <span className="mono text-[12px] font-semibold text-zinc-100">ROOT <span className="font-normal text-zinc-500">· layer {telemetry?.layer ?? '?'}</span></span>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="panel-h">Topology</span>
                     <StatusBadge {...rootBadge} />
                   </div>
-                  {nodeIds.length === 0 ? (
-                    <div className="mono text-[12px] text-zinc-500 pl-3">
-                      └ {telemetry ? 'chưa có node nào tham gia mesh' : 'chưa có dữ liệu'}
-                    </div>
-                  ) : nodeIds.map((id, i) => {
-                    const f = frameByNode[id];
-                    const st = !f ? { state: 'bad', label: 'chưa có ảnh' }
-                      : now - f.ts > STALE_FRAME_MS ? { state: 'stale', label: `mất tín hiệu · ${timeAgo(f.ts)}` }
-                      : { state: 'ok', label: 'đang phát' };
-                    return (
-                      <div key={id} className="flex items-center gap-1.5">
-                        <span className="mono text-[12px] text-zinc-600 w-3 text-center">{i === nodeIds.length - 1 ? '└' : '├'}</span>
-                        <div className="nested flex-1 min-w-0 px-2.5 py-1.5 flex justify-between items-center gap-2">
-                          <span className="mono text-[12px] text-zinc-200 truncate">node {id}</span>
-                          <StatusBadge {...st} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div className="text-[11px] text-zinc-500 mt-1">Danh sách phẳng do Root báo — chưa có quan hệ cha/con.</div>
+                  <TopologyTree telemetry={telemetry} nodeById={nodeById} order={droneOrder} />
                 </section>
 
                 <section className="panel flex flex-col min-h-[180px] lg:flex-1">
@@ -1237,14 +1565,14 @@
                   ) : viewMode === 'grid' ? (
                     <div className={`h-full grid ${gridCols} ${gridRows} gap-2 auto-rows-[minmax(240px,1fr)] lg:auto-rows-auto`}>
                       {frames.map(([id, f]) => (
-                        <FrameTile key={id} nodeId={id} f={f} big onClick={() => { setFocusId(id); setViewMode('focus'); }} />
+                        <FrameTile key={id} nodeId={id} f={f} latMs={latOf(id)} info={nodeById[id]} order={droneOrder} big onClick={() => { setFocusId(id); setViewMode('focus'); }} />
                       ))}
                     </div>
                   ) : (
                     <div className="h-full flex flex-col gap-2">
                       <div className="flex-1 min-h-[45vh] lg:min-h-0 flex">
                         <div className="flex-1 min-w-0 flex">
-                          <FrameTile nodeId={focusEntry[0]} f={focusEntry[1]} big />
+                          <FrameTile nodeId={focusEntry[0]} f={focusEntry[1]} latMs={latOf(focusEntry[0])} info={nodeById[focusEntry[0]]} order={droneOrder} big />
                         </div>
                       </div>
                       {frames.length > 1 && (
@@ -1252,7 +1580,7 @@
                           {frames.map(([id, f]) => (
                             <div key={id} className="w-40 shrink-0 flex rounded-md"
                                  style={id === focusEntry[0] ? { boxShadow: '0 0 0 1.5px var(--accent)' } : undefined}>
-                              <FrameTile nodeId={id} f={f} onClick={() => setFocusId(id)} />
+                              <FrameTile nodeId={id} f={f} latMs={latOf(id)} info={nodeById[id]} order={droneOrder} onClick={() => setFocusId(id)} />
                             </div>
                           ))}
                         </div>
