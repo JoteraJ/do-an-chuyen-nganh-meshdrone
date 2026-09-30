@@ -237,8 +237,32 @@ struct NodeStat {
     uint32_t rx_ms;      // millis() lúc nhận NSTAT gần nhất
     ApLinks  ap;         // "ap_rssi": các node con nối vào AP của node này
     bool     ap_known;   // NSTAT có trường "ap_rssi" (kể cả {}); false = Leaf firmware cũ
+    bool     has_rst;    // Leaf firmware cũ không gửi "rst"/"up_s" → null trong telemetry
+    int16_t  rst;        // esp_reset_reason() lúc Leaf khởi động
+    bool     has_up;
+    uint32_t up_s;       // uptime Leaf (giây) trong NSTAT gần nhất
 };
 NodeStat node_stats[NSTAT_MAX_NODES];
+
+/* ── Theo dõi chunk từng node: phát hiện node "im lặng" ─────
+ *
+ * Mảng tĩnh, cập nhật ở MỖI chunk hợp lệ (on_valid_chunk()) nên không dùng
+ * String/malloc. Tập node trong mesh cập nhật ở update_node_tracking()
+ * (changedConnectionCallback + mỗi TRACK_UPDATE_MS trong loop()).
+ * silent = còn trong getNodeList() nhưng quá SILENT_NODE_MS không có chunk,
+ * tính từ chunk cuối hoặc từ lúc node (vào lại) mesh nếu sau đó chưa có chunk. */
+#define TRACK_MAX_NODES   8
+#define TRACK_UPDATE_MS   500
+
+struct NodeTrack {
+    uint32_t id;             // 0 = ô trống
+    uint32_t last_chunk_ms;  // millis() chunk hợp lệ cuối, 0 = chưa có
+    uint32_t seen_ms;        // millis() lúc node (lại) xuất hiện trong getNodeList()
+    bool     in_list;        // có trong getNodeList() ở lần cập nhật gần nhất
+    bool     silent;
+};
+NodeTrack node_track[TRACK_MAX_NODES];
+uint32_t  silent_events = 0;    // số lần một node chuyển sang im lặng (từ lúc khởi động)
 
 static void record_latency(uint32_t node_id, uint32_t capture_us) {
     // Phép trừ không dấu 32 bit tự xử lý quay vòng của getNodeTime() (~71 phút)
@@ -299,6 +323,10 @@ static void store_nstat(uint32_t from, const String& msg) {
     ns->rssi     = ns->has_rssi ? (int16_t)doc["rssi"].as<int>() : 0;
     ns->heap     = doc["heap"] | 0u;
     ns->rx_ms    = millis();
+    ns->has_rst  = doc["rst"].is<int>();
+    ns->rst      = ns->has_rst ? (int16_t)doc["rst"].as<int>() : 0;
+    ns->has_up   = doc["up_s"].is<uint32_t>();
+    ns->up_s     = ns->has_up ? doc["up_s"].as<uint32_t>() : 0;
 
     // "ap_rssi": {"<nodeId>": dBm} — Leaf firmware cũ không gửi → ap.n = 0
     ns->ap.n = 0;
@@ -569,11 +597,48 @@ static const char* link_rssi_for(uint32_t child, uint32_t parent, const ApLinks&
     return NULL;
 }
 
+/* track_find(): ô theo dõi của node id; create = true thì cấp ô mới nếu chưa có.
+ * Hết ô → lấy lại ô của node không còn trong mesh (ưu tiên), rồi ô lâu không
+ * có chunk nhất. Trả NULL khi không tìm thấy và create = false. */
+static NodeTrack* track_find(uint32_t id, bool create) {
+    NodeTrack* empty = NULL;
+    for (uint8_t i = 0; i < TRACK_MAX_NODES; i++) {
+        if (node_track[i].id == id) return &node_track[i];
+        if (empty == NULL && node_track[i].id == 0) empty = &node_track[i];
+    }
+    if (!create) return NULL;
+    NodeTrack* t = empty;
+    if (t == NULL) {
+        uint32_t now = millis();
+        uint32_t oldest_age = 0;
+        for (uint8_t i = 0; i < TRACK_MAX_NODES; i++) {
+            NodeTrack& c = node_track[i];
+            uint32_t ref = (c.last_chunk_ms != 0) ? c.last_chunk_ms : c.seen_ms;
+            // Node ngoài mesh coi như "cũ hơn" mọi node trong mesh
+            uint32_t age = (now - ref) / 2 + (c.in_list ? 0 : 0x80000000UL);
+            if (t == NULL || age > oldest_age) { t = &c; oldest_age = age; }
+        }
+    }
+    memset(t, 0, sizeof(*t));
+    t->id = id;
+    t->seen_ms = millis();
+    return t;
+}
+
+/* on_valid_chunk(): gọi cho mỗi chunk đã qua validate header. */
+static void on_valid_chunk(uint32_t id) {
+    NodeTrack* t = track_find(id, true);
+    uint32_t now = millis();
+    t->last_chunk_ms = now ? now : 1;
+    t->silent = false;
+}
+
 /* append_node_json(): 1 phần tử của mảng "nodes". Trường chưa có → null.
  * link_src = NULL → "link_rssi"/"link_rssi_src" = null. */
 static void append_node_json(char* json, size_t sz, int& pos, bool first,
                              uint32_t id, int hop, const NodeStat* ns, uint32_t now,
                              const char* link_src, int link_rssi) {
+    const NodeTrack* tr = track_find(id, false);
     json_appendf(json, sz, pos, "%s{\"id\":%u,", first ? "" : ",", (unsigned)id);
     if (ns) {
         json_appendf(json, sz, pos, "\"fw\":\"%s\",", ns->fw);
@@ -587,6 +652,13 @@ static void append_node_json(char* json, size_t sz, int& pos, bool first,
     else          json_appendf(json, sz, pos, "\"link_rssi\":null,\"link_rssi_src\":null,");
     if (hop > 0) json_appendf(json, sz, pos, "\"hop\":%d,", hop);
     else         json_appendf(json, sz, pos, "\"hop\":null,");
+    if (tr && tr->last_chunk_ms) json_appendf(json, sz, pos, "\"last_chunk_age_ms\":%u,", (unsigned)(now - tr->last_chunk_ms));
+    else                         json_appendf(json, sz, pos, "\"last_chunk_age_ms\":null,");
+    json_appendf(json, sz, pos, "\"silent\":%s,", (tr && tr->silent) ? "true" : "false");
+    if (ns && ns->has_rst) json_appendf(json, sz, pos, "\"rst\":%d,", (int)ns->rst);
+    else                   json_appendf(json, sz, pos, "\"rst\":null,");
+    if (ns && ns->has_up)  json_appendf(json, sz, pos, "\"up_s\":%u,", (unsigned)ns->up_s);
+    else                   json_appendf(json, sz, pos, "\"up_s\":null,");
     if (ns) json_appendf(json, sz, pos, "\"age_ms\":%u}", (unsigned)(now - ns->rx_ms));
     else    json_appendf(json, sz, pos, "\"age_ms\":null}");
 }
@@ -608,6 +680,64 @@ static uint8_t collect_node_ids(uint32_t* ids, uint8_t max) {
         if (!dup) ids[n++] = id;
     }
     return n;
+}
+
+/* update_node_tracking(): đối chiếu node_track[] với getNodeList() (đã bỏ Root),
+ * cập nhật in_list/seen_ms và trạng thái silent. */
+static void update_node_tracking() {
+    uint32_t ids[TREE_MAX_NODES];
+    uint8_t  n = collect_node_ids(ids, TREE_MAX_NODES);
+    uint32_t now = millis();
+
+    for (uint8_t i = 0; i < TRACK_MAX_NODES; i++) {
+        NodeTrack& t = node_track[i];
+        if (t.id == 0) continue;
+        bool in_now = false;
+        for (uint8_t j = 0; j < n; j++) {
+            if (ids[j] == t.id) { in_now = true; break; }
+        }
+        if (in_now && !t.in_list) t.seen_ms = now;   // vào (lại) mesh
+        t.in_list = in_now;
+    }
+    for (uint8_t j = 0; j < n; j++) {
+        NodeTrack* t = track_find(ids[j], false);
+        if (t == NULL) {                              // node mới, chưa gửi chunk nào
+            t = track_find(ids[j], true);
+            t->in_list = true;
+        }
+    }
+
+    for (uint8_t i = 0; i < TRACK_MAX_NODES; i++) {
+        NodeTrack& t = node_track[i];
+        if (t.id == 0) continue;
+        uint32_t ref = t.seen_ms;
+        if (t.last_chunk_ms != 0 && (int32_t)(t.last_chunk_ms - ref) > 0) ref = t.last_chunk_ms;
+        bool s = t.in_list && now - ref > SILENT_NODE_MS;
+        if (s && !t.silent) {
+            silent_events++;
+            DBGF("[NODE] %u im lang: con trong mesh nhung %u ms khong co chunk",
+                 (unsigned)t.id, (unsigned)(now - ref));
+        }
+        t.silent = s;
+    }
+}
+
+/* check_heap_guard(): heap trống < HEAP_CRITICAL_BYTES liên tục quá
+ * HEAP_CRITICAL_MS → khung LOG nêu lý do rồi ESP.restart(). Biện pháp cuối,
+ * không phải watchdog node. */
+static void check_heap_guard() {
+    static uint32_t low_since = 0;   // 0 = heap đang trên ngưỡng
+    uint32_t heap = ESP.getFreeHeap();
+    uint32_t now = millis();
+    if (heap >= HEAP_CRITICAL_BYTES) { low_since = 0; return; }
+    if (low_since == 0) { low_since = now ? now : 1; return; }
+    if (now - low_since > HEAP_CRITICAL_MS) {
+        DBGF("[HEAP] RESTART: heap trong %u < %u byte lien tuc %u ms",
+             (unsigned)heap, (unsigned)HEAP_CRITICAL_BYTES, (unsigned)(now - low_since));
+        Serial.flush();
+        delay(100);
+        ESP.restart();
+    }
 }
 
 /* send_telemetry_frame(): xem cấu trúc JSON trong UART_PROTOCOL.md §4.2.
@@ -640,6 +770,7 @@ static void send_telemetry_frame() {
         json_appendf(json, sizeof(json), pos, "%s%u", i ? "," : "", (unsigned)node_ids[i]);
     }
     json_appendf(json, sizeof(json), pos, "],\"last_self_heal_ms\":%ld", (long)last_self_heal_ms);
+    json_appendf(json, sizeof(json), pos, ",\"silent_events\":%u", (unsigned)silent_events);
 
     /* Latency của chu kỳ vừa qua. Không có mẫu → lat_n = 0, các giá trị là
      * null (không gửi số giả). */
@@ -1024,6 +1155,9 @@ void receive_and_reassemble(uint32_t from, String &msg) {
         chunk_logf("[ASM] Payload khong hop le: %d bytes", header.payload_len);
         return;
     }
+
+    // Chunk hợp lệ → node này còn gửi dữ liệu (theo dõi "silent", mảng tĩnh)
+    on_valid_chunk(from);
 
     /* ── Bước 3: Tìm hoặc tạo slot assembly ────────────────
      *
@@ -1526,6 +1660,8 @@ void changedConnectionCallback() {
         DBGF("[MESH] SELF-HEALING: mang khoi phuc sau %ld ms\n", (long)last_self_heal_ms);
         last_disconnect_ms = 0; // reset, san sang cho lan rot ket noi tiep theo
     }
+
+    update_node_tracking();   // bắt đúng lúc node vào/rời getNodeList()
 }
 
 
@@ -1636,6 +1772,7 @@ void setup() {
 
     DBGF("[MESH] Root Node ID: %u\n", mesh.getNodeId());
     DBGF("[SYS] Firmware: %s\n", FW_VERSION);
+    DBGF("[SYS] Ly do reset: %d", (int)esp_reset_reason());
     ap_map_self_check();
     DBGF("[MESH] Mesh SSID: %s\n", MESH_SSID);
     DBGF("[MESH] Ket noi WiFi: %s\n", STATION_SSID);
@@ -1695,6 +1832,14 @@ void loop() {
 
     /* [3b] In dòng tổng kết lỗi chunk còn treo (giới hạn 1 dòng/giây) */
     chunk_log_flush();
+
+    /* [3c] Theo dõi node im lặng + bảo vệ heap */
+    static uint32_t last_track_time = 0;
+    if (millis() - last_track_time >= TRACK_UPDATE_MS) {
+        last_track_time = millis();
+        update_node_tracking();
+    }
+    check_heap_guard();
 
     /* [4] Phục vụ HTTP clients */
     handle_http_clients();

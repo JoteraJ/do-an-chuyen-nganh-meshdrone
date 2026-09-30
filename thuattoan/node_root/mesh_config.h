@@ -226,4 +226,20 @@
 #define NSTAT_INTERVAL_MS         2000
 #define AP_RSSI_MAX               6         // so station toi da doc tu AP moi node (ap_rssi / link_rssi)
 
+/* ============================================================
+ *  11. THEO DÕI NODE IM LẶNG & BẢO VỆ HEAP (chỉ Root)
+ *
+ *  SILENT_NODE_MS: node còn trong getNodeList() nhưng quá mức này
+ *  không có chunk hợp lệ (tính từ chunk cuối, hoặc từ lúc node vào
+ *  lại mesh) → "silent" trong telemetry. Root KHÔNG restart vì việc
+ *  này — Leaf tự có watchdog riêng.
+ *
+ *  HEAP_CRITICAL_*: heap trống < HEAP_CRITICAL_BYTES liên tục quá
+ *  HEAP_CRITICAL_MS → gửi khung LOG rồi ESP.restart(). Biện pháp
+ *  cuối cho Root (bình thường ~95–101 KB khi chạy 3 Leaf).
+ * ============================================================ */
+#define SILENT_NODE_MS            10000
+#define HEAP_CRITICAL_BYTES       40960
+#define HEAP_CRITICAL_MS          10000
+
 #endif // MESH_CONFIG_H
