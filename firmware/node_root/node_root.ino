@@ -146,6 +146,7 @@ uint8_t* assembly_buffers[MAX_CONCURRENT_FRAMES];
  * (vùng nhớ pre-allocated dùng chung). HTTP server và send_image_frame()
  * đọc trực tiếp từ đó — an toàn vì slot chỉ bị tái dụng sau khi
  * new_frame_available được reset (single-thread Arduino loop). */
+#if HTTP_ENABLE
 const uint8_t* latest_frame     = NULL;  // Trỏ vào assembly buffer, KHÔNG free
 size_t         latest_frame_len = 0;
 
@@ -160,6 +161,7 @@ WiFiServer httpServer(HTTP_SERVER_PORT);
 // Client đang streaming MJPEG (chỉ hỗ trợ 1 client tại một thời điểm)
 WiFiClient streamClient;
 bool client_streaming = false;
+#endif // HTTP_ENABLE
 
 /* ── Thống kê ────────────────────────────────────────────── */
 uint32_t frames_completed   = 0;    // Tổng frame ghép thành công
@@ -169,8 +171,10 @@ uint32_t uart_drop          = 0;    // Frame ảnh ghép xong nhưng bỏ không
 size_t   uart_tx_buf_size   = 0;    // TX ring buffer thật sự có (0 = không có, chỉ FIFO 128 B)
 uint32_t last_stats_time    = 0;    // Thời điểm in thống kê cuối
 
+#if HTTP_ENABLE
 // Flag in IP một lần
 bool ip_printed = false;
+#endif
 
 /* ── Self-healing: đo thời gian mesh khôi phục sau khi rớt kết nối ──
  *
@@ -1379,9 +1383,11 @@ void receive_and_reassemble(uint32_t from, String &msg) {
         // Latency chụp → ghép xong, đo NGAY khi frame hoàn chỉnh (trước khi gửi UART)
         record_latency(fa.node_id, fa.capture_us);
 
+#if HTTP_ENABLE
         latest_frame        = fa.jpeg_buffer; // trỏ trực tiếp, không copy
         latest_frame_len    = fa.jpeg_total_len;
         new_frame_available = true;
+#endif
 
         // Gửi ngay qua UART cho middleware (song song với HTTP MJPEG cũ,
         // không thay thế — xem UART_PROTOCOL.md §4.1)
@@ -1438,6 +1444,7 @@ void cleanup_stale_frames() {
 }
 
 
+#if HTTP_ENABLE
 /* ================================================================
  *  HTTP MJPEG SERVER
  *
@@ -1674,6 +1681,9 @@ void handle_http_clients() {
 }
 
 
+#endif // HTTP_ENABLE
+
+
 /* ================================================================
  *  MESH CALLBACKS
  * ================================================================ */
@@ -1861,17 +1871,27 @@ void setup() {
     DBGF("[SYS] Ly do reset: %d", (int)esp_reset_reason());
     ap_map_self_check();
     DBGF("[MESH] Mesh SSID: %s\n", MESH_SSID);
-    DBGF("[MESH] Ket noi WiFi: %s\n", STATION_SSID);
 
-    /* ── Khởi tạo HTTP Server ───────────────────────────── */
+    /* ── Khởi tạo HTTP Server (HTTP_ENABLE, mesh_config.h) ─ */
+    uint32_t heap_before_http = ESP.getFreeHeap();
+#if HTTP_ENABLE
+    DBGLN("[MESH] Ket noi WiFi: (SSID trong secrets.h)");   // không in STATION_SSID ra log
     httpServer.begin();
     DBGF("[HTTP] Server KHOI DONG tren port %d\n", HTTP_SERVER_PORT);
+    DBGF("[SYS] HTTP: BAT | Heap truoc/sau khoi HTTP: %u / %u byte",
+         (unsigned)heap_before_http, (unsigned)ESP.getFreeHeap());
+#else
+    DBGF("[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: %u / %u byte",
+         (unsigned)heap_before_http, (unsigned)ESP.getFreeHeap());
+#endif
 
     /* ── Thông tin cho người dùng ────────────────────────── */
     DBGLN("");
     DBGLN("========================================");
     DBGLN("[SYS] ROOT NODE da san sang!");
+#if HTTP_ENABLE
     DBGLN("[SYS] Dang cho ket noi WiFi de lay IP...");
+#endif
     DBGF("[SYS] Reassembly timeout: %d ms\n", REASSEMBLY_TIMEOUT_MS);
     DBGF("[SYS] Max concurrent frames: %d\n", MAX_CONCURRENT_FRAMES);
     DBGLN("========================================\n");
@@ -1894,6 +1914,7 @@ void loop() {
     /* [1] Cập nhật Mesh — BẮT BUỘC gọi mỗi vòng loop */
     mesh.update();
 
+#if HTTP_ENABLE
     /* [2] In IP khi WiFi kết nối thành công (một lần)
      *
      * Sau khi stationManual() thành công, ESP32 nhận IP từ
@@ -1912,6 +1933,7 @@ void loop() {
             ip_printed = true;
         }
     }
+#endif
 
     /* [3] Dọn dẹp frame timeout */
     cleanup_stale_frames();
@@ -1927,8 +1949,10 @@ void loop() {
     }
     check_heap_guard();
 
+#if HTTP_ENABLE
     /* [4] Phục vụ HTTP clients */
     handle_http_clients();
+#endif
 
     /* [4b] Gửi khung TELEMETRY cho middleware định kỳ (xem UART_PROTOCOL.md §4.2) */
     static uint32_t last_telemetry_time = 0;

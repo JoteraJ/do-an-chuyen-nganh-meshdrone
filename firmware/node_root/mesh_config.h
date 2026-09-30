@@ -176,6 +176,12 @@
 #define HTTP_SERVER_PORT    80          // Port HTTP server
 #define MJPEG_BOUNDARY      "frame"    // Boundary cho multipart MJPEG
 
+/* HTTP_ENABLE: 0 = Root KHÔNG khởi tạo web server, không poll client HTTP
+ * mỗi vòng loop(), không chờ IP router. Ảnh/telemetry chỉ đi qua UART sang
+ * middleware (đường dùng thật). 1 = bật lại code HTTP MJPEG cũ (giữ nguyên,
+ * bọc #if trong node_root.ino); stationManual() vẫn đang comment. */
+#define HTTP_ENABLE         0
+
 /* ============================================================
  *  8. UART SANG MIDDLEWARE PC (xem ../UART_PROTOCOL.md)
  *
