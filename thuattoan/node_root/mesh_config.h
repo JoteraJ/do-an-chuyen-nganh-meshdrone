@@ -39,10 +39,19 @@
  *  trình duyệt web trên cùng mạng WiFi truy cập vào luồng
  *  MJPEG của Root.
  *
- *  >>> THAY ĐỔI SSID VÀ PASSWORD WIFI ROUTER CỦA BẠN TẠI ĐÂY <<<
+ *  >>> ĐIỀN SSID VÀ PASSWORD WIFI ROUTER TRONG secrets.h <<<
  * ============================================================ */
-#define STATION_SSID       "HFamily_Vmember"       // SSID của WiFi router
-#define STATION_PASSWORD   "091214Mrs.H"   // Password WiFi router
+// SSID/mat khau that nam trong secrets.h (khong commit). Chua co secrets.h
+// -> dung gia tri mau ben duoi, build van chay (chi khong vao duoc router).
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#ifndef STATION_SSID
+#define STATION_SSID       "YOUR_WIFI_SSID"       // SSID của WiFi router
+#endif
+#ifndef STATION_PASSWORD
+#define STATION_PASSWORD   "YOUR_WIFI_PASSWORD"   // Password WiFi router
+#endif
 
 /* ============================================================
  *  3. CẤU HÌNH GIAO THỨC TRUYỀN CHUNK
