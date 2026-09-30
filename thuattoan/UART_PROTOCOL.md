@@ -104,6 +104,7 @@ ví dụ:
   "chunks": 610,
   "heap_free": 123456,
   "psram_free": 234567,
+  "uart_drop": 0,
   "node_count": 3,
   "node_ids": [111, 222, 333],
   "last_self_heal_ms": 842,
@@ -165,6 +166,12 @@ Không có sự kiện mới: `[]`.
 Mẫu > 10 s bị bỏ (đồng hồ mesh chưa đồng bộ). Chu kỳ không có mẫu:
 `lat_n = 0`, `lat_avg_ms`/`lat_min_ms`/`lat_max_ms` = `null`, `lat_by_node` = `{}`.
 Khóa của `lat_by_node` là node_id dạng chuỗi (JSON bắt buộc khóa là chuỗi).
+
+`uart_drop`: số frame ảnh Root đã ghép xong nhưng **không** ghi ra UART vì TX
+buffer (`Serial.setTxBufferSize(8192)`, `UART_TX_BUFFER_SIZE`) còn trống dưới một
+nửa — frame trước chưa ra hết dây. Root bỏ frame ảnh thay vì chặn `loop()` (chặn
+lâu làm `mesh.update()` trễ). Khung TELEMETRY và LOG không bao giờ bị bỏ. Frame bị
+bỏ ở đây vẫn được tính trong `frames_ok` (đã ghép xong).
 
 `fw`: `FW_VERSION` của Root. `chunk_err`: tổng lỗi giải mã/validate chunk tại Root
 từ lúc khởi động (log text của các lỗi này bị giới hạn 1 dòng/giây, bộ đếm thì không).

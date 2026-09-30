@@ -189,7 +189,7 @@
       { key: 'latMs',      label: 'Latency chụp → Root ghép xong', unit: 'ms',      digits: 1 },
     ];
     // Cột phụ trong CSV (theo từng mẫu), không vẽ biểu đồ riêng
-    const CSV_EXTRA = ['latMinMs', 'latMaxMs', 'latN'];
+    const CSV_EXTRA = ['latMinMs', 'latMaxMs', 'latN', 'uartDrop'];   // uartDrop: bộ đếm uart_drop tích luỹ của Root
     // Cột topology trong CSV: [khoá trong mẫu, tên cột]. Chỉ tính node còn trong cây và
     // NSTAT chưa quá NODE_STALE_MS. hop_max = độ sâu lớn nhất, rssi_min = liên kết yếu nhất (theo link_rssi).
     // lat_by_node: latency trung bình từng node trong chu kỳ telemetry (telemetry "lat_by_node").
@@ -1364,6 +1364,7 @@
           if (dOk + dDrop > 0) s.dropPct = (100 * dDrop) / (dOk + dDrop);
           if (nFrames > 0) s.frameKB = bytes / 1024 / nFrames;
           if (typeof t.heap_free === 'number') s.heapKB = t.heap_free / 1024;
+          if (typeof t.uart_drop === 'number') s.uartDrop = t.uart_drop;
           if (t.lat_n > 0 && Number.isFinite(t.lat_avg_ms)) {
             s.latMs = t.lat_avg_ms; s.latMinMs = t.lat_min_ms; s.latMaxMs = t.lat_max_ms; s.latN = t.lat_n;
           }
@@ -1593,6 +1594,7 @@
                   <Row k="Frame ghép OK" v={telemetry?.frames_ok} cls="text-emerald-400" />
                   <Row k="Frame bị hủy" v={telemetry?.frames_drop} cls="text-red-400" />
                   <Row k="Chunk đã nhận" v={telemetry?.chunks} />
+                  <Row k="Ảnh bỏ ở UART (TX đầy)" v={telemetry?.uart_drop} cls={telemetry?.uart_drop > 0 ? 'text-yellow-300' : 'text-zinc-50'} />
                   <Row k="Self-healing (luồng) gần nhất" v={selfHealNew} cls="text-yellow-300" />
                   <Row k="Self-healing (cách cũ)" v={selfHeal} cls="text-zinc-400" />
                   <Row k="Node im lặng (số lần)" v={telemetry?.silent_events} cls={telemetry?.silent_events > 0 ? 'text-red-400' : 'text-zinc-50'} />

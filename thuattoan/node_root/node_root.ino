@@ -165,6 +165,8 @@ bool client_streaming = false;
 uint32_t frames_completed   = 0;    // Tổng frame ghép thành công
 uint32_t frames_dropped     = 0;    // Tổng frame bị hủy (timeout/eviction)
 uint32_t chunks_received    = 0;    // Tổng chunk đã nhận
+uint32_t uart_drop          = 0;    // Frame ảnh ghép xong nhưng bỏ không ghi UART (TX buffer còn đầy)
+size_t   uart_tx_buf_size   = 0;    // TX ring buffer thật sự có (0 = không có, chỉ FIFO 128 B)
 uint32_t last_stats_time    = 0;    // Thời điểm in thống kê cuối
 
 // Flag in IP một lần
@@ -804,12 +806,12 @@ static void send_telemetry_frame() {
     int pos = snprintf(json, sizeof(json),
         "{\"ts\":%lu,\"role\":\"root\",\"layer\":0,\"fw\":\"" FW_VERSION "\","
         "\"frames_ok\":%u,\"frames_drop\":%u,\"chunks\":%u,\"chunk_err\":%u,"
-        "\"heap_free\":%u,\"psram_free\":%u,"
+        "\"heap_free\":%u,\"psram_free\":%u,\"uart_drop\":%u,"
         "\"node_count\":%u,\"node_ids\":[",
         (unsigned long)millis(),
         (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
         (unsigned)chunk_errors,
-        (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
+        (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(), (unsigned)uart_drop,
         (unsigned)node_n);
 
     if (pos < 0) pos = 0;
@@ -911,6 +913,15 @@ static void send_image_frame(uint32_t node_id, uint16_t frame_id, const uint8_t*
     if (jpeg == NULL || jpeg_len == 0) return;
     if (jpeg_len > MAX_FRAME_SIZE) {
         DBGF("[UART] Anh qua lon (%u > %u), bo qua gui UART", (unsigned)jpeg_len, (unsigned)MAX_FRAME_SIZE);
+        return;
+    }
+
+    /* Không chặn loop(): TX buffer còn trống < một nửa nghĩa là frame trước chưa
+     * ra hết dây → bỏ frame ẢNH này (TELEMETRY/LOG không bao giờ bị bỏ). Không có
+     * TX buffer (setTxBufferSize thất bại) thì giữ hành vi cũ: ghi chặn. */
+    if (uart_tx_buf_size > SOC_UART_FIFO_LEN &&
+        Serial.availableForWrite() < (int)(uart_tx_buf_size / 2)) {
+        uart_drop++;
         return;
     }
 
@@ -1742,7 +1753,11 @@ static void ap_map_self_check() {
  *  SETUP — Khởi tạo Root Node
  * ================================================================ */
 void setup() {
+    uint32_t heap_before_uart = ESP.getFreeHeap();
+    uart_tx_buf_size = Serial.setTxBufferSize(UART_TX_BUFFER_SIZE);   // phải gọi TRƯỚC begin()
+    if (uart_tx_buf_size <= SOC_UART_FIFO_LEN) uart_tx_buf_size = 0;
     Serial.begin(PC_UART_BAUD);   // 921600bps — xem UART_PROTOCOL.md, KHONG con 115200 debug
+    uint32_t heap_after_uart = ESP.getFreeHeap();
     delay(1000);
 
     DBGLN("");
@@ -1766,6 +1781,8 @@ void setup() {
         DBGLN("[SYS] PSRAM: KHONG CO — chuyen sang dung SRAM noi bo (dung luong nho hon)");
         DBGLN("[SYS] (Binh thuong voi ESP32-WROOM-32D, se chay duoc voi buffer giam)");
     }
+    DBGF("[SYS] Heap truoc/sau Serial.begin: %u / %u byte (UART TX buffer %u byte)",
+         (unsigned)heap_before_uart, (unsigned)heap_after_uart, (unsigned)uart_tx_buf_size);
     DBGF("[SYS] Heap truoc init_memory(): %d bytes kha dung\n", ESP.getFreeHeap());
 
     /* ── Cấp phát bộ nhớ ────────────────────────────────── */
@@ -1923,9 +1940,9 @@ void loop() {
     uint32_t now = millis();
     if (now - last_stats_time >= 15000) {
         last_stats_time = now;
-        DBGF("[STAT] Frames OK: %d | Dropped: %d | Chunks: %d | "
+        DBGF("[STAT] Frames OK: %d | Dropped: %d | UART drop: %u | Chunks: %d | "
                       "Heap: %d | PSRAM: %d | Nodes: %d\n",
-                      frames_completed, frames_dropped, chunks_received,
+                      frames_completed, frames_dropped, (unsigned)uart_drop, chunks_received,
                       ESP.getFreeHeap(), ESP.getFreePsram(),
                       mesh.getNodeList().size());
     }

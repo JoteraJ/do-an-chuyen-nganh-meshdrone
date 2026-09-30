@@ -192,6 +192,14 @@
 #define PC_UART_BAUD               921600
 #define TELEMETRY_SEND_INTERVAL_MS 2000    // Chu kỳ gửi khung TELEMETRY
 
+/* TX ring buffer của UART0 (Serial.setTxBufferSize(), gọi TRƯỚC Serial.begin(),
+ * có từ ESP32 Arduino core 2.0.x — đang dùng 2.0.17). Mặc định core = 0: chỉ có
+ * FIFO phần cứng 128 B nên mọi Serial.write() chặn tới khi byte ra dây. Buffer
+ * lấy từ heap: nếu heap Root lúc khởi động (log "[SYS] Heap ... Serial.begin")
+ * xuống dưới ~80 KB thì giảm về 4096. send_image_frame() bỏ frame ảnh khi buffer
+ * còn trống < một nửa (frame trước chưa ra hết) → đếm "uart_drop". */
+#define UART_TX_BUFFER_SIZE        8192
+
 /* ============================================================
  *  9. BEACON ROOT — Leaf tự học Root ID để dùng sendSingle()
  *
