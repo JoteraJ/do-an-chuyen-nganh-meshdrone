@@ -3,3 +3,4 @@ desktop.ini
 firmware/**/secrets.h
 **/esp_idf_migration/*/build/
 đăng kí nghiên cứu khoa học/
+data/raw/

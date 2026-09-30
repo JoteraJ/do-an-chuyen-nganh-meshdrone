@@ -66,9 +66,20 @@ function encodeFrame(type, payload) {
  * (giống cách serialport phát sự kiện 'data').
  */
 class FrameParser {
-  constructor() {
+  /**
+   * opts.onSkip(buf, reason) — tuỳ chọn: nhận MỌI byte không thuộc khung hợp lệ,
+   * đúng thứ tự trên dây ('skip' = rác trước MAGIC / LEN vô lý, 'crc' = cả khung
+   * sai CRC). Chỉ quan sát, không đổi cách tách khung hay stats. Dùng để ghi byte
+   * thô (vd dòng "Task watchdog got triggered" ESP32 in thẳng ra UART).
+   */
+  constructor(opts = {}) {
     this._buf = Buffer.alloc(0);
     this.stats = { framesOk: 0, framesBadCrc: 0, bytesSkipped: 0 };
+    this._onSkip = typeof opts.onSkip === 'function' ? opts.onSkip : null;
+  }
+
+  _skip(n, reason) {
+    if (this._onSkip && n > 0) this._onSkip(this._buf.slice(0, n), reason);
   }
 
   push(chunk) {
@@ -81,12 +92,14 @@ class FrameParser {
         // Không thấy MAGIC đầy đủ. Giữ lại tối đa 1 byte (phòng trường hợp
         // byte cuối cùng đúng là MAGIC0, phần MAGIC1 sẽ đến ở chunk kế tiếp).
         if (this._buf.length > 1) {
+          this._skip(this._buf.length - 1, 'skip');
           this.stats.bytesSkipped += this._buf.length - 1;
           this._buf = this._buf.slice(this._buf.length - 1);
         }
         break;
       }
       if (magicIdx > 0) {
+        this._skip(magicIdx, 'skip');
         this.stats.bytesSkipped += magicIdx;
         this._buf = this._buf.slice(magicIdx);
       }
@@ -98,6 +111,7 @@ class FrameParser {
 
       if (len > MAX_PAYLOAD) {
         // LEN vô lý -> MAGIC này chắc chắn là rác trùng ngẫu nhiên, bỏ 1 byte rồi quét lại
+        this._skip(1, 'skip');
         this._buf = this._buf.slice(1);
         this.stats.bytesSkipped += 1;
         continue;
@@ -110,6 +124,7 @@ class FrameParser {
       const crcReceived = this._buf.readUInt16LE(HEADER_LEN + len);
       const crcCalc = crc16CcittFalse(this._buf.slice(2, HEADER_LEN + len));
 
+      if (crcCalc !== crcReceived) this._skip(totalLen, 'crc');
       this._buf = this._buf.slice(totalLen);
 
       if (crcCalc !== crcReceived) {

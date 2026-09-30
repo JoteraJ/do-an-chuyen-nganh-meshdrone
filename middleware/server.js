@@ -9,6 +9,8 @@
  *   3. IMAGE_FRAME  -> phát sự kiện 'frame' (base64 JPEG) qua Socket.IO.
  *      TELEMETRY    -> phát sự kiện 'telemetry' (JSON) qua Socket.IO.
  *      LOG          -> in ra console PC (thay cho Serial Monitor trực tiếp).
+ *      Byte KHÔNG thuộc khung hợp lệ -> ../data/raw/uart_raw_*.log (raw_logger.js),
+ *      để bắt dòng ESP32 in thẳng ra UART (vd "Task watchdog got triggered").
  *   4. Serve luôn dashboard tĩnh trong public/ tại http://localhost:3000
  *
  * Chạy:
@@ -28,6 +30,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { SerialPort } = require('serialport');
 const { FRAME_TYPE, FrameParser } = require('./protocol');
+const { RawLogger } = require('./raw_logger');
 
 const PORT_NAME = process.argv[2] || process.env.COM_PORT || 'COM5';
 const BAUD_RATE = parseInt(process.env.BAUD_RATE || '921600', 10);
@@ -45,7 +48,9 @@ app.get('/', (req, res) => {
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, { maxHttpBufferSize: 2e6 });
 
-const parser = new FrameParser();
+const RAW_LOG_DIR = path.join(__dirname, '..', 'data', 'raw');
+const rawLogger = new RawLogger({ dir: RAW_LOG_DIR });   // mở file ngay lúc start, ghi đĩa mỗi 1 s
+const parser = new FrameParser({ onSkip: (buf, reason) => rawLogger.write(buf, reason) });
 
 // Trạng thái mới nhất, để client mới kết nối vào có ngay dữ liệu thay vì chờ
 // tới lần telemetry/frame kế tiếp.
@@ -150,6 +155,7 @@ app.get('/status', (req, res) => {
     latestFrameMeta,
     latestTelemetry,
     parserStats: parser.stats,
+    rawLog: { file: rawLogger.file, bytes: rawLogger.totalBytes },
   });
 });
 
@@ -164,10 +170,12 @@ openSerial();
 httpServer.listen(HTTP_PORT, () => {
   log(`[HTTP] Dashboard: http://localhost:${HTTP_PORT}`);
   log(`[HTTP] Status API: http://localhost:${HTTP_PORT}/status`);
+  log(`[RAW] Byte tho ngoai khung -> ${rawLogger.file}`);
 });
 
 process.on('SIGINT', () => {
   log('Dang tat middleware...');
   if (currentPort && currentPort.isOpen) currentPort.close();
+  rawLogger.close();
   process.exit(0);
 });
