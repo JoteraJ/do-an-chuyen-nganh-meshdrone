@@ -74,8 +74,8 @@
  * ============================================================ */
 #define REASSEMBLY_TIMEOUT_MS   2000    // Timeout hủy frame không hoàn chỉnh (ms) — khớp Root
 #define MAX_CONCURRENT_FRAMES   4       // Không dùng ở Leaf, giữ để tham khảo
-#define MAX_FRAME_SIZE          24576   // Kích thước tối đa một frame JPEG (bytes) = 24KB — khớp Root
-#define MAX_CHUNKS_PER_FRAME    24      // MAX_FRAME_SIZE / MAX_CHUNK_PAYLOAD — khớp Root
+#define MAX_FRAME_SIZE          12288   // Kích thước tối đa một frame JPEG (bytes) = 12KB — khớp Root
+#define MAX_CHUNKS_PER_FRAME    12      // MAX_FRAME_SIZE / MAX_CHUNK_PAYLOAD — khớp Root
 
 /* ============================================================
  *  5. CẤU HÌNH CAMERA OV3660

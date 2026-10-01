@@ -14,7 +14,7 @@
  *  Kiến trúc bộ nhớ:
  *  ─────────────────
  *  - Assembly buffers: Pre-allocated (PSRAM nếu có, ngược lại SRAM)
- *  - MAX_CONCURRENT_FRAMES × MAX_FRAME_SIZE = 4 × 24KB = 96KB
+ *  - MAX_CONCURRENT_FRAMES × MAX_FRAME_SIZE = 4 × 12KB = 48KB
  *  - Không còn latest_frame riêng: HTTP/UART đọc trực tiếp từ assembly buffer
  *  - Tất cả cấp phát 1 lần trong setup() → KHÔNG phân mảnh heap
  *
@@ -95,8 +95,8 @@ typedef struct {
      *   - Kiểm tra chunk bị thiếu khi debug
      *   - Biết khi nào nhận ĐỦ (received_count == total_chunks)
      *
-     * Kích thước 24: hỗ trợ tối đa 24 chunks/frame
-     * = 24 × 1024 = 24576 bytes = MAX_FRAME_SIZE
+     * Kích thước 12: hỗ trợ tối đa 12 chunks/frame
+     * = 12 × 1024 = 12288 bytes = MAX_FRAME_SIZE
      */
     bool chunk_received[MAX_CHUNKS_PER_FRAME];
 
@@ -1099,10 +1099,10 @@ static void send_image_frame(uint32_t node_id, uint16_t frame_id, const uint8_t*
  *
  *  [ĐÃ ĐỔI] Cấp phát buffer SRAM/PSRAM tự động qua alloc_buffer():
  *  - MAX_CONCURRENT_FRAMES assembly buffers × MAX_FRAME_SIZE
- *    (hiện tại = 4 × 24KB = 96KB)
+ *    (hiện tại = 4 × 12KB = 48KB, trước 2026-10-01c là 4 × 24KB)
  *  - KHÔNG còn latest_frame buffer riêng (tiết kiệm 24KB)
  *  - KHÔNG còn uart_tx_buffer riêng (tiết kiệm 24KB+10B)
- *  - Tổng hiện tại: ~96KB — vừa SRAM nội bộ ESP32-WROOM-32D
+ *  - Tổng hiện tại: ~48KB, lấy từ heap DEFAULT (Root không có PSRAM)
  *
  *  Tại sao pre-allocate?
  *  ─────────────────────
@@ -1133,7 +1133,8 @@ static uint8_t* alloc_buffer(size_t size) {
 bool init_memory() {
     bool using_psram = psramFound();
     DBGF("[MEM] Loai bo nho: %s\n", using_psram ? "PSRAM" : "SRAM noi bo");
-    DBGF("[MEM] Heap truoc cap phat: %d bytes\n", ESP.getFreeHeap());
+    DBGF("[MEM] Heap int/def truoc cap phat: %u / %u bytes\n",
+         (unsigned)ESP.getFreeHeap(), (unsigned)esp_get_free_heap_size());
     DBGF("[MEM] Du kien cap phat: %d bytes (%d KB)\n",
          MAX_CONCURRENT_FRAMES * (int)MAX_FRAME_SIZE,
          (MAX_CONCURRENT_FRAMES * (int)MAX_FRAME_SIZE) / 1024);
@@ -1169,7 +1170,8 @@ bool init_memory() {
     if (using_psram) {
         DBGF("[MEM] PSRAM con lai: %d bytes\n", ESP.getFreePsram());
     } else {
-        DBGF("[MEM] Heap con lai sau cap phat: %d bytes\n", ESP.getFreeHeap());
+        DBGF("[MEM] Heap int/def con lai sau cap phat: %u / %u bytes\n",
+             (unsigned)ESP.getFreeHeap(), (unsigned)esp_get_free_heap_size());
     }
 
     return true;
@@ -2010,7 +2012,8 @@ void setup() {
     }
     DBGF("[SYS] Heap truoc/sau Serial.begin: %u / %u byte (UART TX buffer %u byte)",
          (unsigned)heap_before_uart, (unsigned)heap_after_uart, (unsigned)uart_tx_buf_size);
-    DBGF("[SYS] Heap truoc init_memory(): %d bytes kha dung\n", ESP.getFreeHeap());
+    DBGF("[SYS] Heap int/def truoc init_memory(): %u / %u bytes kha dung\n",
+         (unsigned)ESP.getFreeHeap(), (unsigned)esp_get_free_heap_size());
 
     /* ── Cấp phát bộ nhớ ────────────────────────────────── */
     if (!init_memory()) {
@@ -2085,11 +2088,11 @@ void setup() {
     DBGLN("[MESH] Ket noi WiFi: (SSID trong secrets.h)");   // không in STATION_SSID ra log
     httpServer.begin();
     DBGF("[HTTP] Server KHOI DONG tren port %d\n", HTTP_SERVER_PORT);
-    DBGF("[SYS] HTTP: BAT | Heap truoc/sau khoi HTTP: %u / %u byte",
-         (unsigned)heap_before_http, (unsigned)ESP.getFreeHeap());
+    DBGF("[SYS] HTTP: BAT | Heap truoc/sau khoi HTTP: %u / %u byte | heap DEFAULT: %u byte",
+         (unsigned)heap_before_http, (unsigned)ESP.getFreeHeap(), (unsigned)esp_get_free_heap_size());
 #else
-    DBGF("[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: %u / %u byte",
-         (unsigned)heap_before_http, (unsigned)ESP.getFreeHeap());
+    DBGF("[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: %u / %u byte | heap DEFAULT: %u byte",
+         (unsigned)heap_before_http, (unsigned)ESP.getFreeHeap(), (unsigned)esp_get_free_heap_size());
 #endif
 
     /* ── Thông tin cho người dùng ────────────────────────── */

@@ -44,7 +44,7 @@ Offset  Size    Field     Mô tả
 ```
 
 Tổng độ dài 1 khung = `7 + LEN + 2` byte. `LEN` tối đa cho phép ở middleware:
-131072 byte (đủ dư cho `MAX_FRAME_SIZE = 24576` + 10 byte sub-header ảnh); khung
+131072 byte (đủ dư cho `MAX_FRAME_SIZE = 12288` + 10 byte sub-header ảnh); khung
 báo LEN lớn hơn mức này bị coi là hỏng, middleware bỏ 1 byte MAGIC rồi quét lại.
 
 CRC dùng thuật toán **CRC-16/CCITT-FALSE** — cài đặt tham chiếu:
@@ -225,7 +225,7 @@ Heap (Root từ 2026-10-01b; byte). Hai phạm vi đo khác nhau, **không so tr
 
 `frame_max_bytes_win` / `frame_max_bytes_boot` (Root từ 2026-10-01b): kích thước JPEG
 lớn nhất (byte) Root ghép xong trong cửa sổ (0 = cửa sổ không có frame nào) / từ lúc
-khởi động. So với `MAX_FRAME_SIZE` (24576) để biết slot ghép còn dư bao nhiêu; frame
+khởi động. So với `MAX_FRAME_SIZE` (12288 từ Root 2026-10-01c, trước đó 24576) để biết slot ghép còn dư bao nhiêu; frame
 lớn hơn slot bị bỏ khi nhận chunk nên không vào số này.
 
 `fw`: `FW_VERSION` của Root. `chunk_err`: tổng lỗi giải mã/validate chunk tại Root
@@ -294,7 +294,10 @@ trừ dòng lý do restart của heap guard (Root `Serial.flush()` trước khi 
 guard đo heap DEFAULT như `heap_def`, ngưỡng `HEAP_DEF_CRITICAL_BYTES`, quá
 `HEAP_CRITICAL_MS` = 10 s; trước đó đo `ESP.getFreeHeap()`, ngưỡng 40960). Dòng
 khởi động đáng chú ý:
-- `[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: X / Y byte` (`HTTP_ENABLE 0`).
+- `[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: X / Y byte | heap DEFAULT: Z byte` (`HTTP_ENABLE 0`;
+  X/Y là INTERNAL; phần `heap DEFAULT` có từ Root 2026-10-01c).
+- `[MEM] Heap int/def truoc cap phat: A / B bytes`, `[MEM] Heap int/def con lai sau cap phat: C / D bytes`
+  (Root 2026-10-01c): B − D = heap DEFAULT 4 slot ghép ảnh chiếm.
 - `[BOOT] WDT reset (ly do N): loop_max_ms=.. heap_cuoi=.. heap_def_min_win=.. stage=.. up_s=..`
   — chỉ sau reset do watchdog (N = 5 `INT_WDT`, 6 `TASK_WDT`, 7 `WDT`); số liệu lấy từ
   vùng `.noinit` Root ghi mỗi vòng `loop()`. `stage` = bước `loop()` đang chạy lúc bị

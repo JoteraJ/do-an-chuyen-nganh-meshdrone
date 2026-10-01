@@ -83,20 +83,21 @@
  *  MAX_CONCURRENT_FRAMES: Số slot ghép đồng thời. Mỗi slot
  *  chiếm MAX_FRAME_SIZE byte SRAM (Root KHÔNG có PSRAM).
  *
- *  [ĐÃ ĐỔI] 4 slot × 24KB = 96KB, vừa SRAM nội bộ ESP32-WROOM-32D
- *  (~120KB khả dụng sau khi WiFi/Mesh stack đã chiếm phần lớn).
+ *  [ĐÃ ĐỔI] 4 slot × 12KB = 48KB heap DEFAULT (2026-10-01c; trước đó
+ *  4 × 24KB = 96KB làm heap DEFAULT lúc chạy chỉ còn ~45–48 KB, đáy 21 KB).
  *  Số slot phải ≥ số Leaf gửi đồng thời + 1 (cho frame chồng lấn),
  *  nếu không chunk của Leaf này sẽ hất frame đang ghép dở của Leaf
  *  kia ra ngoài (eviction chéo, drop rate cao). 4 slot đủ cho 3 Leaf.
  *
  *  MAX_FRAME_SIZE: Kích thước tối đa một ảnh JPEG. QVGA quality
- *  12 thực tế cho ảnh ~8-15KB, đặt 24KB để dự phòng vừa đủ mà
- *  không tốn SRAM (board không PSRAM).
+ *  12: frame lớn nhất đo được 5887 B (test18, frame_max_bytes_boot),
+ *  trung bình 2,3–8,4 KB → 12KB còn dư ~2×. Phải KHỚP Leaf
+ *  (node_camera/mesh_config.h): Leaf bỏ frame lớn hơn trước khi gửi.
  * ============================================================ */
 #define REASSEMBLY_TIMEOUT_MS   2000    // Timeout hủy frame không hoàn chỉnh (ms)
 #define MAX_CONCURRENT_FRAMES   4       // Số frame đang ghép đồng thời tối đa
-#define MAX_FRAME_SIZE          24576   // Kích thước tối đa một frame JPEG (bytes) = 24KB
-#define MAX_CHUNKS_PER_FRAME    24      // MAX_FRAME_SIZE / MAX_CHUNK_PAYLOAD
+#define MAX_FRAME_SIZE          12288   // Kích thước tối đa một frame JPEG (bytes) = 12KB — khớp Leaf
+#define MAX_CHUNKS_PER_FRAME    12      // MAX_FRAME_SIZE / MAX_CHUNK_PAYLOAD — khớp Leaf
 
 #if (MAX_CHUNKS_PER_FRAME * MAX_CHUNK_PAYLOAD) < MAX_FRAME_SIZE
 #error "MAX_CHUNKS_PER_FRAME qua nho so voi MAX_FRAME_SIZE"
