@@ -282,7 +282,10 @@ console của PC, giữ nguyên trải nghiệm xem log như khi cắm Serial Mo
 trực tiếp, nhưng không làm hỏng luồng nhị phân.
 
 Từ Root 2026-10-01a: khung LOG bị bỏ (đếm `log_drop`) khi TX buffer chưa đủ chỗ,
-trừ dòng lý do restart của heap guard (Root `Serial.flush()` trước khi gửi). Dòng
+trừ dòng lý do restart của heap guard (Root `Serial.flush()` trước khi gửi):
+`[HEAP] RESTART: heap DEFAULT trong X < 16384 byte lien tuc N ms` (từ 2026-10-01b
+guard đo heap DEFAULT như `heap_def`, ngưỡng `HEAP_DEF_CRITICAL_BYTES`, quá
+`HEAP_CRITICAL_MS` = 10 s; trước đó đo `ESP.getFreeHeap()`, ngưỡng 40960). Dòng
 khởi động đáng chú ý:
 - `[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: X / Y byte` (`HTTP_ENABLE 0`).
 - `[BOOT] WDT reset (ly do N): loop_max_ms=.. heap_cuoi=.. heap_def_min_win=.. stage=.. up_s=..`

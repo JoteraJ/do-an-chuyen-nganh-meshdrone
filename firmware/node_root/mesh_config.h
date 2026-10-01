@@ -248,12 +248,15 @@
  *  lại mesh) → "silent" trong telemetry. Root KHÔNG restart vì việc
  *  này — Leaf tự có watchdog riêng.
  *
- *  HEAP_CRITICAL_*: heap trống < HEAP_CRITICAL_BYTES liên tục quá
+ *  Heap guard: heap DEFAULT trống (esp_get_free_heap_size(), heap
+ *  malloc dùng được) < HEAP_DEF_CRITICAL_BYTES liên tục quá
  *  HEAP_CRITICAL_MS → gửi khung LOG rồi ESP.restart(). Biện pháp
- *  cuối cho Root (bình thường ~95–101 KB khi chạy 3 Leaf).
+ *  cuối cho Root. Test17 (3 Leaf): DEFAULT ổn định ~45 KB, đáy
+ *  trong cửa sổ thường ~42 KB, thấp nhất 25 KB. (Trước 2026-10-01b
+ *  guard đo ESP.getFreeHeap() = INTERNAL, cao hơn DEFAULT ~47 KB.)
  * ============================================================ */
 #define SILENT_NODE_MS            10000
-#define HEAP_CRITICAL_BYTES       40960
+#define HEAP_DEF_CRITICAL_BYTES   16384
 #define HEAP_CRITICAL_MS          10000
 
 #endif // MESH_CONFIG_H

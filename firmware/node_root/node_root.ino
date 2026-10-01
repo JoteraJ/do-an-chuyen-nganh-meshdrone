@@ -862,19 +862,20 @@ static void update_node_tracking() {
     }
 }
 
-/* check_heap_guard(): heap trống < HEAP_CRITICAL_BYTES liên tục quá
+/* check_heap_guard(): heap DEFAULT trống (esp_get_free_heap_size(), cùng phép
+ * đo với heap_def_min_win) < HEAP_DEF_CRITICAL_BYTES liên tục quá
  * HEAP_CRITICAL_MS → khung LOG nêu lý do rồi ESP.restart(). Biện pháp cuối,
  * không phải watchdog node. */
 static void check_heap_guard() {
     static uint32_t low_since = 0;   // 0 = heap đang trên ngưỡng
-    uint32_t heap = ESP.getFreeHeap();
+    uint32_t heap = esp_get_free_heap_size();
     uint32_t now = millis();
-    if (heap >= HEAP_CRITICAL_BYTES) { low_since = 0; return; }
+    if (heap >= HEAP_DEF_CRITICAL_BYTES) { low_since = 0; return; }
     if (low_since == 0) { low_since = now ? now : 1; return; }
     if (now - low_since > HEAP_CRITICAL_MS) {
         Serial.flush();   // xả TX trước để dòng lý do restart không bị bỏ (log_drop)
-        DBGF("[HEAP] RESTART: heap trong %u < %u byte lien tuc %u ms",
-             (unsigned)heap, (unsigned)HEAP_CRITICAL_BYTES, (unsigned)(now - low_since));
+        DBGF("[HEAP] RESTART: heap DEFAULT trong %u < %u byte lien tuc %u ms",
+             (unsigned)heap, (unsigned)HEAP_DEF_CRITICAL_BYTES, (unsigned)(now - low_since));
         Serial.flush();
         delay(100);
         ESP.restart();
