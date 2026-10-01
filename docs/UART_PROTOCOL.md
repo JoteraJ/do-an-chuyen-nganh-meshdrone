@@ -113,6 +113,8 @@ ví dụ:
   "heap_def_min_win": 43008,
   "heap_int_min_boot": 58624,
   "heap_def_largest": 30720,
+  "frame_max_bytes_win": 14210,
+  "frame_max_bytes_boot": 17633,
   "rx_q": null,
   "node_count": 3,
   "node_ids": [111, 222, 333],
@@ -220,6 +222,11 @@ Heap (Root từ 2026-10-01b; byte). Hai phạm vi đo khác nhau, **không so tr
 | `heap_def_min_win` | `esp_get_free_heap_size()` | thấp nhất trong cửa sổ, đo cuối mỗi vòng `loop()` (trước đây `heap_min_win`) |
 | `heap_int_min_boot` | `ESP.getMinFreeHeap()` | mức đáy INTERNAL từ lúc khởi động, không sống qua reset (trước đây `heap_min_boot`). Là tổng mức đáy của từng vùng heap, mỗi vùng chạm đáy lúc khác nhau → cận dưới, có thể thấp hơn mọi thời điểm thật |
 | `heap_def_largest` | `heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)` | thấp nhất trong cửa sổ, đo cuối mỗi vòng `loop()`. Cấp phát lớn hơn số này sẽ thất bại dù tổng trống còn đủ (phân mảnh) |
+
+`frame_max_bytes_win` / `frame_max_bytes_boot` (Root từ 2026-10-01b): kích thước JPEG
+lớn nhất (byte) Root ghép xong trong cửa sổ (0 = cửa sổ không có frame nào) / từ lúc
+khởi động. So với `MAX_FRAME_SIZE` (24576) để biết slot ghép còn dư bao nhiêu; frame
+lớn hơn slot bị bỏ khi nhận chunk nên không vào số này.
 
 `fw`: `FW_VERSION` của Root. `chunk_err`: tổng lỗi giải mã/validate chunk tại Root
 từ lúc khởi động (log text của các lỗi này bị giới hạn 1 dòng/giây, bộ đếm thì không).

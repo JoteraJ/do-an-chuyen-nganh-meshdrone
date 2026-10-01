@@ -178,6 +178,8 @@ uint32_t log_drop           = 0;    // Khung LOG bị bỏ vì TX buffer chưa �
 uint32_t loop_max_ms_win      = 0;            // vòng loop() lâu nhất trong cửa sổ (ms)
 uint32_t heap_def_min_win     = UINT32_MAX;   // esp_get_free_heap_size() (DEFAULT) thấp nhất trong cửa sổ
 uint32_t heap_def_largest_win = UINT32_MAX;   // khối trống lớn nhất của DEFAULT, thấp nhất trong cửa sổ
+uint32_t frame_max_bytes_win  = 0;            // frame JPEG lớn nhất ghép xong trong cửa sổ (0 = không có frame)
+uint32_t frame_max_bytes_boot = 0;            // frame JPEG lớn nhất ghép xong từ lúc khởi động
 
 /* Bản ghi sống qua reset mềm/WDT (vùng .noinit, KHÔNG sống qua mất nguồn).
  * Ghi mỗi vòng loop() (chỉ vài lệnh ghi RAM) để lúc WDT cắt ngang vẫn còn số
@@ -916,7 +918,8 @@ static bool send_telemetry_frame() {
         "\"heap_int\":%u,\"heap_def\":%u,\"psram_free\":%u,\"uart_drop\":%u,"
         "\"uart_defer\":%u,\"log_drop\":%u,\"late_chunk_drop\":%u,"
         "\"loop_max_ms\":%u,\"heap_def_min_win\":%u,\"heap_int_min_boot\":%u,"
-        "\"heap_def_largest\":%u,\"rx_q\":null,"
+        "\"heap_def_largest\":%u,\"frame_max_bytes_win\":%u,\"frame_max_bytes_boot\":%u,"
+        "\"rx_q\":null,"
         "\"node_count\":%u,\"node_ids\":[",
         (unsigned long)millis(),
         (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
@@ -929,6 +932,7 @@ static bool send_telemetry_frame() {
         (unsigned)ESP.getMinFreeHeap(),
         (unsigned)(heap_def_largest_win == UINT32_MAX
                    ? heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT) : heap_def_largest_win),
+        (unsigned)frame_max_bytes_win, (unsigned)frame_max_bytes_boot,
         (unsigned)node_n);
 
     if (pos < 0) pos = 0;
@@ -1022,7 +1026,7 @@ static bool send_telemetry_frame() {
     heal_n = 0;   // đã ghi thật → xóa, mỗi heal event chỉ xuất hiện trong 1 khung
     lat_sum_us = 0; lat_n = 0; lat_node_count = 0;   // mẫu latency đã gửi
     loop_max_ms_win = 0; heap_def_min_win = UINT32_MAX;   // mở cửa sổ đo mới
-    heap_def_largest_win = UINT32_MAX;
+    heap_def_largest_win = UINT32_MAX; frame_max_bytes_win = 0;
     return true;
 }
 
@@ -1577,6 +1581,8 @@ void receive_and_reassemble(uint32_t from, String &msg) {
         asm_hist_closed(fa.node_id, fa.frame_id, millis());
 
         frames_completed++;
+        if (fa.jpeg_total_len > frame_max_bytes_win)  frame_max_bytes_win  = fa.jpeg_total_len;
+        if (fa.jpeg_total_len > frame_max_bytes_boot) frame_max_bytes_boot = fa.jpeg_total_len;
     }
 }
 

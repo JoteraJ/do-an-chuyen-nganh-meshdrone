@@ -199,6 +199,8 @@
       // heapIntMinBootKB = ESP.getMinFreeHeap() từ lúc khởi động (FW 10-01a: heap_min_boot);
       // heapDefLargestKB = khối trống lớn nhất của DEFAULT, thấp nhất trong cửa sổ (FW ≥ 2026-10-01b)
       'uartDefer', 'logDrop', 'loopMaxMs', 'heapIntKB', 'heapDefMinWinKB', 'heapIntMinBootKB', 'heapDefLargestKB',
+      // frameMaxBytesWin/Boot (FW ≥ 2026-10-01b): frame JPEG lớn nhất Root ghép xong trong cửa sổ (0 = không có) / từ lúc khởi động, byte
+      'frameMaxBytesWin', 'frameMaxBytesBoot',
       'lateChunkDrop'];   // lateChunkDrop: chunk trễ của frame đã đóng bị Root bỏ (tích luỹ)
     // Cột mô tả cấu hình trong CSV (chuỗi): [khoá trong mẫu, tên cột].
     // n_leaf = số Leaf còn trong cây đang gửi NSTAT (biết fw) — khác cột "leaf" (= node_count của Root, gồm cả node chưa gửi NSTAT).
@@ -1390,6 +1392,8 @@
           if (typeof heapDefMin === 'number') s.heapDefMinWinKB = heapDefMin / 1024;
           if (typeof heapIntMinBoot === 'number') s.heapIntMinBootKB = heapIntMinBoot / 1024;
           if (typeof t.heap_def_largest === 'number') s.heapDefLargestKB = t.heap_def_largest / 1024;
+          if (typeof t.frame_max_bytes_win === 'number') s.frameMaxBytesWin = t.frame_max_bytes_win;
+          if (typeof t.frame_max_bytes_boot === 'number') s.frameMaxBytesBoot = t.frame_max_bytes_boot;
           if (typeof t.fw === 'string') s.fwRoot = t.fw;
           if (t.lat_n > 0 && Number.isFinite(t.lat_avg_ms)) {
             s.latMs = t.lat_avg_ms; s.latMinMs = t.lat_min_ms; s.latMaxMs = t.lat_max_ms; s.latN = t.lat_n;
