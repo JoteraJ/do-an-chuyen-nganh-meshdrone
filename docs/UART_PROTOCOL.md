@@ -133,11 +133,11 @@ ví dụ:
     { "nodeId": 222 } ] },
   "nodes": [
     { "id": 111, "fw": "2026-09-30c", "rssi": -58, "heap": 101234, "link_rssi": -61, "link_rssi_src": "ap_parent",  "hop": 1,
-      "last_chunk_age_ms": 240, "silent": false, "rst": 1, "up_s": 3605, "stg": 1, "age_ms": 820 },
+      "last_chunk_age_ms": 240, "silent": false, "rst": 1, "up_s": 3605, "stg": 1, "big": 0, "age_ms": 820 },
     { "id": 333, "fw": "2026-09-30c", "rssi": -77, "heap": 99876,  "link_rssi": -79, "link_rssi_src": "ap_parent",  "hop": 2,
-      "last_chunk_age_ms": 12450, "silent": true, "rst": 9, "up_s": 41, "stg": null, "age_ms": 1430 },
+      "last_chunk_age_ms": 12450, "silent": true, "rst": 9, "up_s": 41, "stg": null, "big": null, "age_ms": 1430 },
     { "id": 222, "fw": null, "rssi": null, "heap": null, "link_rssi": -70, "link_rssi_src": "ap_parent", "hop": 1,
-      "last_chunk_age_ms": null, "silent": false, "rst": null, "up_s": null, "stg": null, "age_ms": null }
+      "last_chunk_age_ms": null, "silent": false, "rst": null, "up_s": null, "stg": null, "big": null, "age_ms": null }
   ]
 }
 ```
@@ -259,8 +259,11 @@ hoặc từ lúc node (vào lại) mesh. Root chỉ báo, **không** restart vì
 pha trên đồng hồ mesh, `0` = lịch cũ theo `millis()` riêng từng board; `null` = Leaf
 firmware cũ không gửi.
 
+`big` (Leaf từ 2026-10-01b): số frame Leaf chụp được nhưng bỏ vì JPEG > `MAX_FRAME_SIZE`
+(không gửi chunk nào), tích luỹ từ lúc Leaf khởi động; `null` = Leaf firmware cũ.
+
 Message `#NSTAT{...}` Leaf gửi (Leaf → Root qua mesh, không đi qua UART):
-`{"id":..,"fw":"..","rssi":..,"heap":..,"frames":..,"chunks_fail":..,"rst":..,"up_s":..,"stg":0|1,"ap_rssi":{..}}`.
+`{"id":..,"fw":"..","rssi":..,"heap":..,"frames":..,"chunks_fail":..,"rst":..,"up_s":..,"stg":0|1,"big":..,"ap_rssi":{..}}`.
 
 `link_rssi`: RSSI (dBm) của liên kết nối node đó với node cha trong `tree`;
 `link_rssi_src` cho biết số đo lấy từ đâu. Mỗi liên kết painlessMesh là station

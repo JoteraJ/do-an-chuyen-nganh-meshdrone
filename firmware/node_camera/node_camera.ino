@@ -81,6 +81,7 @@ uint32_t last_capture_time = 0;     // millis() của lần chụp cuối cùng
 uint32_t frames_sent = 0;           // Tổng số frame đã gửi (thống kê)
 uint32_t chunks_sent = 0;           // Tổng số chunk đã gửi (thống kê)
 uint32_t chunks_send_fail = 0;      // Tổng số chunk gửi thất bại (thống kê)
+uint32_t frames_too_big = 0;        // Frame bỏ vì > MAX_FRAME_SIZE, không gửi (NSTAT "big")
 
 /* root_id: Node ID của Root, học qua beacon ROOT_BEACON_PREFIX do Root
  * phát định kỳ (xem receivedCallback()). 0 = chưa biết → capture_and_send()
@@ -305,8 +306,9 @@ void capture_and_send() {
 
     /* Kiểm tra kích thước hợp lý */
     if (fb->len > MAX_FRAME_SIZE) {
-        Serial.printf("[CAM] Frame qua lon: %d bytes (max %d)\n",
-                      fb->len, MAX_FRAME_SIZE);
+        frames_too_big++;
+        Serial.printf("[CAM] Frame qua lon: %d bytes (max %d), da bo %u frame\n",
+                      fb->len, MAX_FRAME_SIZE, (unsigned)frames_too_big);
         esp_camera_fb_return(fb);
         return;
     }
@@ -529,11 +531,13 @@ void send_nstat() {
 
     int pos = snprintf(buf, sizeof(buf),
              NSTAT_PREFIX "{\"id\":%u,\"fw\":\"" FW_VERSION "\",\"rssi\":%s,"
-             "\"heap\":%u,\"frames\":%u,\"chunks_fail\":%u,\"rst\":%d,\"up_s\":%u,\"stg\":%d,\"ap_rssi\":{",
+             "\"heap\":%u,\"frames\":%u,\"chunks_fail\":%u,\"rst\":%d,\"up_s\":%u,\"stg\":%d,"
+             "\"big\":%u,\"ap_rssi\":{",
              (unsigned)mesh.getNodeId(), rssi_str, (unsigned)ESP.getFreeHeap(),
              (unsigned)frames_sent, (unsigned)chunks_send_fail,
              (int)boot_reset_reason, (unsigned)(millis() / 1000),
-             (int)STAGGER_ENABLE);   // "stg": lịch chụp stagger bật/tắt (cột stagger trong CSV)
+             (int)STAGGER_ENABLE,    // "stg": lịch chụp stagger bật/tắt (cột stagger trong CSV)
+             (unsigned)frames_too_big);   // "big": frame bỏ vì > MAX_FRAME_SIZE (tích luỹ từ lúc khởi động)
 
     wifi_sta_list_t sta_list;
     if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {

@@ -320,6 +320,8 @@ struct NodeStat {
     bool     has_up;
     uint32_t up_s;       // uptime Leaf (giây) trong NSTAT gần nhất
     int8_t   stg;        // "stg": STAGGER_ENABLE của Leaf; -1 = Leaf firmware cũ không gửi
+    bool     has_big;    // Leaf firmware cũ không gửi "big" → null trong telemetry
+    uint32_t big;        // "big": số frame Leaf bỏ vì > MAX_FRAME_SIZE (tích luỹ)
 };
 NodeStat node_stats[NSTAT_MAX_NODES];
 
@@ -416,6 +418,8 @@ static void store_nstat(uint32_t from, const String& msg) {
     ns->has_up   = doc["up_s"].is<uint32_t>();
     ns->up_s     = ns->has_up ? doc["up_s"].as<uint32_t>() : 0;
     ns->stg      = doc["stg"].is<int>() ? (int8_t)(doc["stg"].as<int>() ? 1 : 0) : -1;
+    ns->has_big  = doc["big"].is<uint32_t>();
+    ns->big      = ns->has_big ? doc["big"].as<uint32_t>() : 0;
 
     // "ap_rssi": {"<nodeId>": dBm} — Leaf firmware cũ không gửi → ap.n = 0
     ns->ap.n = 0;
@@ -794,6 +798,8 @@ static void append_node_json(char* json, size_t sz, int& pos, bool first,
     else                   json_appendf(json, sz, pos, "\"up_s\":null,");
     if (ns && ns->stg >= 0) json_appendf(json, sz, pos, "\"stg\":%d,", (int)ns->stg);
     else                    json_appendf(json, sz, pos, "\"stg\":null,");
+    if (ns && ns->has_big) json_appendf(json, sz, pos, "\"big\":%u,", (unsigned)ns->big);
+    else                   json_appendf(json, sz, pos, "\"big\":null,");
     if (ns) json_appendf(json, sz, pos, "\"age_ms\":%u}", (unsigned)age_ms(now, ns->rx_ms));
     else    json_appendf(json, sz, pos, "\"age_ms\":null}");
 }

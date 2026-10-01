@@ -209,7 +209,8 @@
     // Cột topology trong CSV: [khoá trong mẫu, tên cột]. Chỉ tính node còn trong cây và
     // NSTAT chưa quá NODE_STALE_MS. hop_max = độ sâu lớn nhất, rssi_min = liên kết yếu nhất (theo link_rssi).
     // lat_by_node: latency trung bình từng node trong chu kỳ telemetry (telemetry "lat_by_node").
-    const CSV_TOPO = [['hopMax', 'hop_max'], ['rssiMin', 'rssi_min_dbm'], ['hopByNode', 'hop_by_node'], ['rssiByNode', 'rssi_by_node'], ['latByNode', 'lat_by_node']];
+    // big_by_node: "id:N;…" — số frame Leaf bỏ vì > MAX_FRAME_SIZE, tích luỹ (nodes[].big, Leaf ≥ 2026-10-01b).
+    const CSV_TOPO = [['hopMax', 'hop_max'], ['rssiMin', 'rssi_min_dbm'], ['hopByNode', 'hop_by_node'], ['rssiByNode', 'rssi_by_node'], ['latByNode', 'lat_by_node'], ['bigByNode', 'big_by_node']];
 
     // ── Topology / NSTAT (telemetry "tree" + "nodes", UART_PROTOCOL.md §4.2) ──
     const RSSI_GOOD = -65;          // > -65 dBm: mạnh
@@ -1099,9 +1100,10 @@
               const age = Number.isFinite(info?.age_ms) ? ` · NSTAT ${(info.age_ms / 1000).toFixed(1)}s trước` : '';
               const chunkAge = Number.isFinite(info?.last_chunk_age_ms) ? `\nChunk cuối: ${(info.last_chunk_age_ms / 1000).toFixed(1)}s trước${silent ? ' (IM LẶNG)' : ''}` : '';
               const rstTip = !n.isRoot && Number.isFinite(info?.rst) ? `\nReset: ${info.rst} (${RST_NAME[info.rst] || '?'}) · uptime ${fmtUptime(info.up_s)}` : '';
+              const bigTip = !n.isRoot && Number.isFinite(info?.big) ? `\nFrame quá cỡ Leaf bỏ: ${info.big}` : '';
               return (
                 <g key={`${n.detached ? 'd' : 't'}-${n.id}`} opacity={lost ? 0.4 : 1}>
-                  <title>{`${nameOf(n)}${age}${n.isRoot ? '' : `\n${linkSrcText(info)}`}${chunkAge}${rstTip}`}</title>
+                  <title>{`${nameOf(n)}${age}${n.isRoot ? '' : `\n${linkSrcText(info)}`}${chunkAge}${rstTip}${bigTip}`}</title>
                   <rect x={x} y={y} width={TREE_BOX_W} height={TREE_BOX_H} rx="6" fill="var(--surface-2)"
                         stroke={n.isRoot ? 'var(--accent)' : lost ? '#52525B' : silent ? 'var(--critical)' : rssiColor(linkRssi(info))}
                         strokeWidth={silent ? 2 : 1.2} strokeDasharray={silent ? '5 3' : undefined} />
@@ -1140,6 +1142,7 @@
           {!compact && <span> · hop {info.hop ?? '—'} · </span>}
           {!compact && (info.fw ? <span>fw {info.fw}</span> : <span style={{ color: 'var(--warning)' }}>firmware cũ?</span>)}
           {info.silent === true && <span style={{ color: 'var(--critical)' }}> · im lặng</span>}
+          {info.big > 0 && <span style={{ color: 'var(--warning)' }}> · quá cỡ {info.big}</span>}
         </span>
       );
     }
@@ -1408,6 +1411,8 @@
             if (lat.length) s.latByNode = lat.map(([id, v]) => `${id}:${v.toFixed(1)}`).join(';');
           }
           if (rssis.length) { s.rssiMin = Math.min(...rssis.map(linkRssi)); s.rssiByNode = rssis.map((n) => `${n.id}:${linkRssi(n)}`).join(';'); }
+          const bigs = live.filter((n) => Number.isFinite(n.big));
+          if (bigs.length) s.bigByNode = bigs.map((n) => `${n.id}:${n.big}`).join(';');
           const withFw = live.filter((n) => typeof n.fw === 'string' && n.fw);
           s.nLeaf = withFw.length;
           if (withFw.length) s.fwLeaf = withFw.map((n) => `${n.id}:${n.fw}`).join(';');
