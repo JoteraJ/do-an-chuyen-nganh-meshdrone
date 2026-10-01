@@ -204,7 +204,8 @@
  * FIFO phần cứng 128 B nên mọi Serial.write() chặn tới khi byte ra dây. Buffer
  * lấy từ heap: nếu heap Root lúc khởi động (log "[SYS] Heap ... Serial.begin")
  * xuống dưới ~80 KB thì giảm về 4096. send_image_frame() bỏ frame ảnh khi buffer
- * còn trống < một nửa (frame trước chưa ra hết) → đếm "uart_drop". */
+ * còn trống < cả khung ảnh (7 + 10 + JPEG + 2 byte) → đếm "uart_drop"; JPEG lớn hơn
+ * UART_TX_BUFFER_SIZE − 19 vì vậy luôn bị bỏ (8192 → JPEG > 8173 B). */
 #define UART_TX_BUFFER_SIZE        8192
 
 /* ============================================================

@@ -179,10 +179,11 @@ Mẫu > 10 s bị bỏ (đồng hồ mesh chưa đồng bộ). Chu kỳ không c
 Khóa của `lat_by_node` là node_id dạng chuỗi (JSON bắt buộc khóa là chuỗi).
 
 `uart_drop`: số frame ảnh Root đã ghép xong nhưng **không** ghi ra UART vì TX
-buffer (`Serial.setTxBufferSize(8192)`, `UART_TX_BUFFER_SIZE`) còn trống dưới một
-nửa — frame trước chưa ra hết dây. Root bỏ frame ảnh thay vì chặn `loop()` (chặn
-lâu làm `mesh.update()` trễ). Frame bị bỏ ở đây vẫn được tính trong `frames_ok`
-(đã ghép xong).
+buffer (`Serial.setTxBufferSize(8192)`, `UART_TX_BUFFER_SIZE`) còn trống ít hơn cả
+khung ảnh (7 + 10 + JPEG + 2 byte; Root từ 2026-10-01c — trước đó là "ít hơn một
+nửa buffer") — frame trước chưa ra hết dây. Root bỏ frame ảnh thay vì chặn `loop()`
+(chặn lâu làm `mesh.update()` trễ). Hệ quả: JPEG > 8173 B (buffer 8192) luôn bị bỏ ở
+UART. Frame bị bỏ ở đây vẫn được tính trong `frames_ok` (đã ghép xong).
 
 Từ Root firmware 2026-10-01a, TELEMETRY và LOG cũng không chặn `loop()`: chỉ ghi
 khi TX buffer đủ chỗ cho **cả khung** (kèm dự phòng cho header item của ring buffer

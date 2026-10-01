@@ -1051,11 +1051,17 @@ static void send_image_frame(uint32_t node_id, uint16_t frame_id, const uint8_t*
         return;
     }
 
-    /* Không chặn loop(): TX buffer còn trống < một nửa nghĩa là frame trước chưa
-     * ra hết dây → bỏ frame ẢNH này (TELEMETRY/LOG không bao giờ bị bỏ). Không có
-     * TX buffer (setTxBufferSize thất bại) thì giữ hành vi cũ: ghi chặn. */
+    /* Không chặn loop(): TX buffer phải còn trống đủ CẢ khung (header 7 + sub-header
+     * 10 + JPEG + CRC 2), thiếu → bỏ frame ẢNH này, đếm uart_drop. Khung lớn hơn cả
+     * TX buffer (JPEG > UART_TX_BUFFER_SIZE − 19) vì vậy luôn bị bỏ. (Trước
+     * 2026-10-01c: chỉ đòi trống ≥ nửa buffer → frame > nửa buffer vẫn ghi và chặn
+     * tới khi phần dư ra dây.) Khác uart_room_for(): KHÔNG cộng dự phòng cho header
+     * item/đuôi ring buffer NOSPLIT, nên khi buffer bị chia vụn Serial.write() vẫn có
+     * thể chờ ngắn (≤ ~2 KB ra dây ≈ 22 ms ở 921600). Không có TX buffer
+     * (setTxBufferSize thất bại) thì giữ hành vi cũ: ghi chặn. */
+    size_t frame_bytes = 7 + 10 + jpeg_len + 2;
     if (uart_tx_buf_size > SOC_UART_FIFO_LEN &&
-        Serial.availableForWrite() < (int)(uart_tx_buf_size / 2)) {
+        Serial.availableForWrite() < (int)frame_bytes) {
         uart_drop++;
         return;
     }
