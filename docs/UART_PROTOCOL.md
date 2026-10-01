@@ -102,15 +102,17 @@ ví dụ:
   "frames_ok": 42,
   "frames_drop": 3,
   "chunks": 610,
-  "heap_free": 123456,
+  "heap_int": 93184,
+  "heap_def": 45056,
   "psram_free": 234567,
   "uart_drop": 0,
   "uart_defer": 0,
   "log_drop": 0,
   "late_chunk_drop": 1,
   "loop_max_ms": 38,
-  "heap_min_win": 90112,
-  "heap_min_boot": 71680,
+  "heap_def_min_win": 43008,
+  "heap_int_min_boot": 58624,
+  "heap_def_largest": 30720,
   "rx_q": null,
   "node_count": 3,
   "node_ids": [111, 222, 333],
@@ -201,10 +203,23 @@ hủy luôn frame mới đang ghép — test15: 1 chunk trễ làm mất thêm f
 Đo đạc tìm nguyên nhân reset (Root từ 2026-10-01a, chỉ đo): "cửa sổ" = khoảng giữa 2
 khung TELEMETRY đã ghi thành công (~2 s), reset sau mỗi lần gửi.
 - `loop_max_ms`: vòng `loop()` lâu nhất trong cửa sổ (ms).
-- `heap_min_win`: `esp_get_free_heap_size()` thấp nhất trong cửa sổ (byte).
-- `heap_min_boot`: `ESP.getMinFreeHeap()` — heap thấp nhất từ lúc khởi động (byte).
 - `rx_q`: luôn `null` — hàng đợi nhận/gửi của painlessMesh (`BufferedConnection`)
   là `protected`, không có API đọc độ dài.
+
+Heap (Root từ 2026-10-01b; byte). Hai phạm vi đo khác nhau, **không so trực tiếp**:
+- **DEFAULT** (`MALLOC_CAP_DEFAULT`) = heap mà `malloc()`/`new`/`String` dùng được.
+  Với Root hiện tại đây là DRAM nội (số đo ~45 KB cho thấy board không có PSRAM; nếu
+  có PSRAM và `CONFIG_SPIRAM_USE_MALLOC`, DEFAULT tính cả PSRAM).
+- **INTERNAL** (`MALLOC_CAP_INTERNAL`, mọi hàm `ESP.*Heap()` của Arduino core) = DEFAULT
+  cộng IRAM còn trống mà malloc thường không cấp phát. Test17: INTERNAL ≈ DEFAULT + 47 KB.
+
+| Trường | Hàm | Lấy mẫu |
+|---|---|---|
+| `heap_int` | `ESP.getFreeHeap()` | lúc dựng JSON (trước 2026-10-01b tên là `heap_free`) |
+| `heap_def` | `esp_get_free_heap_size()` | lúc dựng JSON |
+| `heap_def_min_win` | `esp_get_free_heap_size()` | thấp nhất trong cửa sổ, đo cuối mỗi vòng `loop()` (trước đây `heap_min_win`) |
+| `heap_int_min_boot` | `ESP.getMinFreeHeap()` | mức đáy INTERNAL từ lúc khởi động, không sống qua reset (trước đây `heap_min_boot`). Là tổng mức đáy của từng vùng heap, mỗi vùng chạm đáy lúc khác nhau → cận dưới, có thể thấp hơn mọi thời điểm thật |
+| `heap_def_largest` | `heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)` | thấp nhất trong cửa sổ, đo cuối mỗi vòng `loop()`. Cấp phát lớn hơn số này sẽ thất bại dù tổng trống còn đủ (phân mảnh) |
 
 `fw`: `FW_VERSION` của Root. `chunk_err`: tổng lỗi giải mã/validate chunk tại Root
 từ lúc khởi động (log text của các lỗi này bị giới hạn 1 dòng/giây, bộ đếm thì không).
@@ -270,7 +285,7 @@ Từ Root 2026-10-01a: khung LOG bị bỏ (đếm `log_drop`) khi TX buffer ch�
 trừ dòng lý do restart của heap guard (Root `Serial.flush()` trước khi gửi). Dòng
 khởi động đáng chú ý:
 - `[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: X / Y byte` (`HTTP_ENABLE 0`).
-- `[BOOT] WDT reset (ly do N): loop_max_ms=.. heap_cuoi=.. heap_min_win=.. stage=.. up_s=..`
+- `[BOOT] WDT reset (ly do N): loop_max_ms=.. heap_cuoi=.. heap_def_min_win=.. stage=.. up_s=..`
   — chỉ sau reset do watchdog (N = 5 `INT_WDT`, 6 `TASK_WDT`, 7 `WDT`); số liệu lấy từ
   vùng `.noinit` Root ghi mỗi vòng `loop()`. `stage` = bước `loop()` đang chạy lúc bị
   cắt: 1 `mesh.update()`, 2 dọn frame timeout, 3 theo dõi node, 4 telemetry,

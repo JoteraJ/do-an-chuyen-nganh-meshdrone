@@ -156,18 +156,20 @@
      * ================================================================ */
 
     /* ── Hằng số TỰ ĐIỀN cho thanh tiến trình ────────────────────────
-     * Telemetry chỉ gửi giá trị "free" (heap_free, psram_free), KHÔNG
+     * Telemetry chỉ gửi giá trị "free" (heap_def, psram_free), KHÔNG
      * gửi dung lượng tổng, nên dashboard không tự đoán tổng.
      *  - null  -> thanh vẽ theo min/max quan sát được trong phiên này,
      *             có chú thích "theo phiên".
      *  - số    -> thanh vẽ theo phần trăm thật.
-     * Gợi ý lấy số: in ESP.getHeapSize() / ESP.getPsramSize() trên Root
+     * Gợi ý lấy số: in heap_caps_get_total_size(MALLOC_CAP_DEFAULT) / ESP.getPsramSize() trên Root
      * Node (Arduino) rồi điền byte vào đây; FPS_TARGET là FPS mục tiêu
      * mà nhóm đặt ra cho luồng ảnh (vd 5).
      * ---------------------------------------------------------------- */
     const HEAP_TOTAL_BYTES = null;
     const PSRAM_TOTAL_BYTES = null;
     const FPS_TARGET = null;
+    // Ngưỡng heap guard của Root (mesh_config.h HEAP_DEF_CRITICAL_BYTES): tô đỏ heap DEFAULT dưới mức này
+    const HEAP_DEF_CRITICAL_BYTES = 16384;
 
     const HAS_IO = typeof io !== 'undefined';     // false khi mở file:// trực tiếp
     const LEAVES = [1, 2, 3];
@@ -185,14 +187,18 @@
       { key: 'dropPct',    label: 'Tỉ lệ frame bị hủy',            unit: '%',       digits: 1 },
       { key: 'chunksPs',   label: 'Chunk nhận tại Root',           unit: 'chunk/s', digits: 1 },
       { key: 'frameKB',    label: 'Kích thước frame trung bình',   unit: 'KB',      digits: 1 },
-      { key: 'heapKB',     label: 'Heap trống tại Root',           unit: 'KB',      digits: 0 },
+      { key: 'heapDefKB',  label: 'Heap DEFAULT trống tại Root (heap malloc dùng được)', unit: 'KB', digits: 0 },
       { key: 'latMs',      label: 'Latency chụp → Root ghép xong', unit: 'ms',      digits: 1 },
     ];
     // Cột phụ trong CSV (theo từng mẫu), không vẽ biểu đồ riêng
     const CSV_EXTRA = ['latMinMs', 'latMaxMs', 'latN', 'uartDrop',   // uartDrop: bộ đếm uart_drop tích luỹ của Root
-      // Root FW ≥ 2026-10-01a (thiếu → ô trống): uartDefer/logDrop tích luỹ; loopMaxMs, heapMinWinKB theo
-      // cửa sổ 1 chu kỳ telemetry; heapMinBootKB = ESP.getMinFreeHeap() từ lúc khởi động
-      'uartDefer', 'logDrop', 'loopMaxMs', 'heapMinWinKB', 'heapMinBootKB',
+      // Root FW ≥ 2026-10-01a (thiếu → ô trống): uartDefer/logDrop tích luỹ; loopMaxMs theo cửa sổ 1 chu kỳ telemetry.
+      // Heap (UART_PROTOCOL.md §4.2): DEFAULT = heap malloc dùng được (esp_get_free_heap_size);
+      // INTERNAL = ESP.getFreeHeap(), gồm cả IRAM trống malloc thường không dùng được (~47 KB hơn DEFAULT).
+      // heapIntKB = heap_int (FW cũ: heap_free); heapDefMinWinKB = DEFAULT thấp nhất trong cửa sổ (FW 10-01a: heap_min_win);
+      // heapIntMinBootKB = ESP.getMinFreeHeap() từ lúc khởi động (FW 10-01a: heap_min_boot);
+      // heapDefLargestKB = khối trống lớn nhất của DEFAULT, thấp nhất trong cửa sổ (FW ≥ 2026-10-01b)
+      'uartDefer', 'logDrop', 'loopMaxMs', 'heapIntKB', 'heapDefMinWinKB', 'heapIntMinBootKB', 'heapDefLargestKB',
       'lateChunkDrop'];   // lateChunkDrop: chunk trễ của frame đã đóng bị Root bỏ (tích luỹ)
     // Cột mô tả cấu hình trong CSV (chuỗi): [khoá trong mẫu, tên cột].
     // n_leaf = số Leaf còn trong cây đang gửi NSTAT (biết fw) — khác cột "leaf" (= node_count của Root, gồm cả node chưa gửi NSTAT).
@@ -1345,7 +1351,7 @@
           prevTelRef.current = { t, at: now, leaf };
 
           // Lịch sử cho sparkline / thanh tiến trình (luôn ghi, không phụ thuộc nút "Đang ghi")
-          if (typeof t.heap_free === 'number') { pushHist('heap', t.heap_free / 1024); extendRange('heap', t.heap_free); }
+          if (typeof t.heap_def === 'number') { pushHist('heap', t.heap_def / 1024); extendRange('heap', t.heap_def); }
           if (typeof t.psram_free === 'number') extendRange('psram', t.psram_free);
           if (t.lat_n > 0) pushHist('lat', t.lat_avg_ms);
           if (prev) {
@@ -1372,14 +1378,18 @@
           const s = { t: now, leaf, fps: dOk / dtRoot, fpsPerNode: dOk / dtRoot / leaf, kbps: bytes / 1024 / dtWall, chunksPs: dCh / dtRoot };
           if (dOk + dDrop > 0) s.dropPct = (100 * dDrop) / (dOk + dDrop);
           if (nFrames > 0) s.frameKB = bytes / 1024 / nFrames;
-          if (typeof t.heap_free === 'number') s.heapKB = t.heap_free / 1024;
+          if (typeof t.heap_def === 'number') s.heapDefKB = t.heap_def / 1024;
+          const heapInt = t.heap_int ?? t.heap_free;   // FW < 2026-10-01b gửi "heap_free" (cùng phép đo)
+          if (typeof heapInt === 'number') s.heapIntKB = heapInt / 1024;
           if (typeof t.uart_drop === 'number') s.uartDrop = t.uart_drop;
           if (typeof t.uart_defer === 'number') s.uartDefer = t.uart_defer;
           if (typeof t.log_drop === 'number') s.logDrop = t.log_drop;
           if (typeof t.late_chunk_drop === 'number') s.lateChunkDrop = t.late_chunk_drop;
           if (typeof t.loop_max_ms === 'number') s.loopMaxMs = t.loop_max_ms;
-          if (typeof t.heap_min_win === 'number') s.heapMinWinKB = t.heap_min_win / 1024;
-          if (typeof t.heap_min_boot === 'number') s.heapMinBootKB = t.heap_min_boot / 1024;
+          const heapDefMin = t.heap_def_min_win ?? t.heap_min_win, heapIntMinBoot = t.heap_int_min_boot ?? t.heap_min_boot;
+          if (typeof heapDefMin === 'number') s.heapDefMinWinKB = heapDefMin / 1024;
+          if (typeof heapIntMinBoot === 'number') s.heapIntMinBootKB = heapIntMinBoot / 1024;
+          if (typeof t.heap_def_largest === 'number') s.heapDefLargestKB = t.heap_def_largest / 1024;
           if (typeof t.fw === 'string') s.fwRoot = t.fw;
           if (t.lat_n > 0 && Number.isFinite(t.lat_avg_ms)) {
             s.latMs = t.lat_avg_ms; s.latMinMs = t.lat_min_ms; s.latMaxMs = t.lat_max_ms; s.latN = t.lat_n;
@@ -1499,7 +1509,11 @@
         const [lo, hi] = range;
         return { frac: hi > lo ? (free - lo) / (hi - lo) : 1, note: `theo phiên · ${kb(lo)} – ${kb(hi)}` };
       };
-      const heapBar = memBar(telemetry?.heap_free ?? null, HEAP_TOTAL_BYTES, rangeRef.current.heap);
+      const heapBar = memBar(telemetry?.heap_def ?? null, HEAP_TOTAL_BYTES, rangeRef.current.heap);
+      const heapIntNow = telemetry?.heap_int ?? telemetry?.heap_free ?? null;
+      const heapDefMinWin = telemetry?.heap_def_min_win ?? telemetry?.heap_min_win ?? null;
+      const heapDefLargest = telemetry?.heap_def_largest ?? null;
+      const heapDefCls = (v) => (v < HEAP_DEF_CRITICAL_BYTES ? 'text-red-400' : v < 2 * HEAP_DEF_CRITICAL_BYTES ? 'text-yellow-300' : 'text-zinc-50');
       const psramBar = memBar(telemetry?.psram_free ?? null, PSRAM_TOTAL_BYTES, rangeRef.current.psram);
       const fpsMax = rangeRef.current.fpsMax;
       const fpsBar = displayFps == null ? { frac: null, note: null }
@@ -1608,8 +1622,9 @@
                   <MetricCard label="Latency (chụp → ghép xong)" value={latHas ? telemetry.lat_avg_ms.toFixed(1) : null} unit="ms"
                               spark={histRef.current.lat} sparkColor="var(--accent)"
                               note={latHas ? `min ${fmt(telemetry.lat_min_ms, 1)} · max ${fmt(telemetry.lat_max_ms, 1)} ms · ${telemetry.lat_n} frame / chu kỳ` : null} />
-                  <MetricCard label="Heap trống" value={telemetry?.heap_free != null ? Math.round(telemetry.heap_free / 1024) : null} unit="KB"
-                              spark={histRef.current.heap} sparkColor="#A1A1AA" bar={heapBar.frac} barColor="var(--accent)" note={heapBar.note} />
+                  <MetricCard label="Heap DEFAULT trống (heap malloc dùng được)" value={telemetry?.heap_def != null ? Math.round(telemetry.heap_def / 1024) : null} unit="KB"
+                              spark={histRef.current.heap} sparkColor="#A1A1AA" bar={heapBar.frac} barColor="var(--accent)"
+                              note={[heapBar.note, heapIntNow != null ? `INTERNAL (gồm IRAM) ${Math.round(heapIntNow / 1024)} KB` : null].filter(Boolean).join(' · ') || null} />
                   <MetricCard label="PSRAM trống" value={telemetry?.psram_free != null ? Math.round(telemetry.psram_free / 1024) : null} unit="KB"
                               bar={psramBar.frac} barColor="var(--accent)" note={psramBar.note} />
                   <Row k="Frame ghép OK" v={telemetry?.frames_ok} cls="text-emerald-400" />
@@ -1618,10 +1633,11 @@
                   <Row k="Chunk đã nhận" v={telemetry?.chunks} />
                   <Row k="Ảnh bỏ ở UART (TX đầy)" v={telemetry?.uart_drop} cls={telemetry?.uart_drop > 0 ? 'text-yellow-300' : 'text-zinc-50'} />
                   {/* Đo đạc ổn định Root (FW ≥ 2026-10-01a): cửa sổ = 1 chu kỳ telemetry. Firmware cũ không gửi → — */}
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-2 gap-1.5">
                     {[
                       ['Loop max', telemetry?.loop_max_ms, 'ms', telemetry?.loop_max_ms >= 1000 ? 'text-red-400' : telemetry?.loop_max_ms >= 200 ? 'text-yellow-300' : 'text-zinc-50'],
-                      ['Heap min cửa sổ', telemetry?.heap_min_win != null ? Math.round(telemetry.heap_min_win / 1024) : null, 'KB', telemetry?.heap_min_win != null && telemetry.heap_min_win < 70 * 1024 ? 'text-red-400' : 'text-zinc-50'],
+                      ['DEFAULT min cửa sổ', heapDefMinWin != null ? Math.round(heapDefMinWin / 1024) : null, 'KB', heapDefCls(heapDefMinWin)],
+                      ['DEFAULT khối lớn nhất', heapDefLargest != null ? Math.round(heapDefLargest / 1024) : null, 'KB', heapDefCls(heapDefLargest)],
                       ['UART hoãn', telemetry?.uart_defer, '', telemetry?.uart_defer > 0 ? 'text-yellow-300' : 'text-zinc-50'],
                     ].map(([label, v, unit, cls]) => (
                       <div key={label} className="nested px-2.5 py-2">

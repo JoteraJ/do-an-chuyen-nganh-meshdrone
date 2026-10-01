@@ -45,6 +45,7 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <stdarg.h>
+#include <esp_heap_caps.h>
 
 /* ────────────────────────────────────────────────────────────
  *  Include shared headers
@@ -174,8 +175,9 @@ uint32_t log_drop           = 0;    // Khung LOG bị bỏ vì TX buffer chưa �
 /* ── Đo đạc tìm nguyên nhân reset (chỉ đo, không đổi hành vi) ──
  * Cửa sổ = khoảng giữa 2 khung TELEMETRY đã ghi thành công (~2 s); reset sau
  * mỗi lần gửi. */
-uint32_t loop_max_ms_win  = 0;            // vòng loop() lâu nhất trong cửa sổ (ms)
-uint32_t heap_min_win     = UINT32_MAX;   // esp_get_free_heap_size() thấp nhất trong cửa sổ
+uint32_t loop_max_ms_win      = 0;            // vòng loop() lâu nhất trong cửa sổ (ms)
+uint32_t heap_def_min_win     = UINT32_MAX;   // esp_get_free_heap_size() (DEFAULT) thấp nhất trong cửa sổ
+uint32_t heap_def_largest_win = UINT32_MAX;   // khối trống lớn nhất của DEFAULT, thấp nhất trong cửa sổ
 
 /* Bản ghi sống qua reset mềm/WDT (vùng .noinit, KHÔNG sống qua mất nguồn).
  * Ghi mỗi vòng loop() (chỉ vài lệnh ghi RAM) để lúc WDT cắt ngang vẫn còn số
@@ -185,7 +187,7 @@ struct DiagNoinit {
     uint32_t magic;
     uint32_t loop_max_ms;    // loop_max_ms_win cửa sổ đang chạy
     uint32_t heap_last;      // heap đo ở vòng loop() cuối
-    uint32_t heap_min_win;   // heap_min_win cửa sổ đang chạy
+    uint32_t heap_def_min_win;   // heap_def_min_win cửa sổ đang chạy
     uint32_t up_s;           // uptime lúc ghi
     uint8_t  stage;          // bước loop() đang chạy (LOOP_STAGE_*)
 };
@@ -910,18 +912,22 @@ static bool send_telemetry_frame() {
     int pos = snprintf(json, sizeof(json),
         "{\"ts\":%lu,\"role\":\"root\",\"layer\":0,\"fw\":\"" FW_VERSION "\","
         "\"frames_ok\":%u,\"frames_drop\":%u,\"chunks\":%u,\"chunk_err\":%u,"
-        "\"heap_free\":%u,\"psram_free\":%u,\"uart_drop\":%u,"
+        "\"heap_int\":%u,\"heap_def\":%u,\"psram_free\":%u,\"uart_drop\":%u,"
         "\"uart_defer\":%u,\"log_drop\":%u,\"late_chunk_drop\":%u,"
-        "\"loop_max_ms\":%u,\"heap_min_win\":%u,\"heap_min_boot\":%u,\"rx_q\":null,"
+        "\"loop_max_ms\":%u,\"heap_def_min_win\":%u,\"heap_int_min_boot\":%u,"
+        "\"heap_def_largest\":%u,\"rx_q\":null,"
         "\"node_count\":%u,\"node_ids\":[",
         (unsigned long)millis(),
         (unsigned)frames_completed, (unsigned)frames_dropped, (unsigned)chunks_received,
         (unsigned)chunk_errors,
-        (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(), (unsigned)uart_drop,
+        (unsigned)ESP.getFreeHeap(), (unsigned)esp_get_free_heap_size(),
+        (unsigned)ESP.getFreePsram(), (unsigned)uart_drop,
         (unsigned)uart_defer, (unsigned)log_drop, (unsigned)late_chunk_drop,
         (unsigned)loop_max_ms_win,
-        (unsigned)(heap_min_win == UINT32_MAX ? esp_get_free_heap_size() : heap_min_win),
+        (unsigned)(heap_def_min_win == UINT32_MAX ? esp_get_free_heap_size() : heap_def_min_win),
         (unsigned)ESP.getMinFreeHeap(),
+        (unsigned)(heap_def_largest_win == UINT32_MAX
+                   ? heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT) : heap_def_largest_win),
         (unsigned)node_n);
 
     if (pos < 0) pos = 0;
@@ -1014,7 +1020,8 @@ static bool send_telemetry_frame() {
     tele_deferred = false;
     heal_n = 0;   // đã ghi thật → xóa, mỗi heal event chỉ xuất hiện trong 1 khung
     lat_sum_us = 0; lat_n = 0; lat_node_count = 0;   // mẫu latency đã gửi
-    loop_max_ms_win = 0; heap_min_win = UINT32_MAX;   // mở cửa sổ đo mới
+    loop_max_ms_win = 0; heap_def_min_win = UINT32_MAX;   // mở cửa sổ đo mới
+    heap_def_largest_win = UINT32_MAX;
     return true;
 }
 
@@ -1950,9 +1957,9 @@ static void report_wdt_boot() {
     int rr = (int)esp_reset_reason();
     if (rr == ESP_RST_INT_WDT || rr == ESP_RST_TASK_WDT || rr == ESP_RST_WDT) {
         if (diag_noinit.magic == DIAG_MAGIC) {
-            DBGF("[BOOT] WDT reset (ly do %d): loop_max_ms=%u heap_cuoi=%u heap_min_win=%u stage=%u up_s=%u",
+            DBGF("[BOOT] WDT reset (ly do %d): loop_max_ms=%u heap_cuoi=%u heap_def_min_win=%u stage=%u up_s=%u",
                  rr, (unsigned)diag_noinit.loop_max_ms, (unsigned)diag_noinit.heap_last,
-                 (unsigned)diag_noinit.heap_min_win, (unsigned)diag_noinit.stage,
+                 (unsigned)diag_noinit.heap_def_min_win, (unsigned)diag_noinit.stage,
                  (unsigned)diag_noinit.up_s);
         } else {
             DBGF("[BOOT] WDT reset (ly do %d): khong co so do truoc reset", rr);
@@ -2179,23 +2186,26 @@ void loop() {
     if (now - last_stats_time >= 15000) {
         last_stats_time = now;
         DBGF("[STAT] Frames OK: %d | Dropped: %d | Late: %u | UART drop: %u | defer: %u | log_drop: %u | Chunks: %d | "
-                      "Heap: %d | PSRAM: %d | Nodes: %d\n",
+                      "Heap int/def: %u/%u | PSRAM: %d | Nodes: %d\n",
                       frames_completed, frames_dropped, (unsigned)late_chunk_drop, (unsigned)uart_drop,
                       (unsigned)uart_defer, (unsigned)log_drop, chunks_received,
-                      ESP.getFreeHeap(), ESP.getFreePsram(),
+                      (unsigned)ESP.getFreeHeap(), (unsigned)esp_get_free_heap_size(), ESP.getFreePsram(),
                       mesh.getNodeList().size());
     }
 
-    /* [6] Đo đạc cửa sổ (Mục 5): vòng loop() lâu nhất, heap thấp nhất.
+    /* [6] Đo đạc cửa sổ (Mục 5): vòng loop() lâu nhất, heap DEFAULT thấp nhất,
+     * khối trống lớn nhất của DEFAULT thấp nhất (hàm duyệt danh sách khối trống).
      * Ghi luôn vào diag_noinit để còn đọc được sau reset WDT. */
     uint32_t loop_ms = age_ms(millis(), loop_t0);
     if (loop_ms > loop_max_ms_win) loop_max_ms_win = loop_ms;
     uint32_t heap_now = esp_get_free_heap_size();
-    if (heap_now < heap_min_win) heap_min_win = heap_now;
+    if (heap_now < heap_def_min_win) heap_def_min_win = heap_now;
+    uint32_t largest_now = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+    if (largest_now < heap_def_largest_win) heap_def_largest_win = largest_now;
     diag_noinit.magic        = DIAG_MAGIC;
     diag_noinit.loop_max_ms  = loop_max_ms_win;
     diag_noinit.heap_last    = heap_now;
-    diag_noinit.heap_min_win = heap_min_win;
+    diag_noinit.heap_def_min_win = heap_def_min_win;
     diag_noinit.up_s         = millis() / 1000;
     diag_noinit.stage        = LOOP_STAGE_DONE;
 }
