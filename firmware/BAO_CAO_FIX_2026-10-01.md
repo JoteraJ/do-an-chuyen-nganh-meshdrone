@@ -1,7 +1,7 @@
 # Bao cao fix on dinh — 2026-10-01
 
 Nhanh `fix/on-dinh-2` (tach tu `feature/on-dinh` @ `547b685`). Khong push, khong sua `main`.
-Firmware sau cung: Root `2026-10-01b` (lan 3, Muc 9–12), Leaf `2026-10-01a`.
+Firmware sau cung: Root `2026-10-01c`, Leaf `2026-10-01b` (lan 4, Muc 13–17).
 Muc tieu: ON DINH, KHONG tang tai. Giu nguyen `CAPTURE_INTERVAL_MS=600`, `STAGGER_ENABLE`,
 `CHUNK_SIZE`, `MAX_FRAME_SIZE`, so slot, `REASSEMBLY_TIMEOUT_MS`, baud.
 
@@ -22,7 +22,12 @@ Ket qua nhanh:
 | 9. Doi ten truong heap INTERNAL/DEFAULT (lan 3) | Xong |
 | 10. Heap guard do DEFAULT, nguong 16 KB | Xong — test17: khong kich hoat |
 | 11. `frame_max_bytes_win/boot` | Xong (chua doi `MAX_FRAME_SIZE`/so slot) |
-| 12. Giam slot 24576 → 12288 | Chi phan tich, chua sua |
+| 12. Giam slot 24576 → 12288 | Phan tich o lan 3, da sua o Muc 13 |
+| 13. Giam slot 12288 (Root + Leaf), giu 4 slot | Xong |
+| 14. Leaf dem frame qua co (`"big"`) | Xong |
+| 15. UART bo anh khi khong du ca khung | Xong (con cho ngan do ring buffer — xem Muc 15) |
+| 16. FW Root `2026-10-01c`, Leaf `2026-10-01b` | Xong, compile ca 2, test_protocol 8/8 |
+| 17. Heap DEFAULT luc khoi dong truoc/sau | Chi so du kien — chua co log khoi dong that |
 
 Compile: `arduino-cli` (ban kem Arduino IDE, `esp32:esp32:esp32cam`, core 2.0.17) — ca 2 sketch
 compile sach sau MOI commit. Ban cuoi: Root 1 088 369 B flash / 57 296 B RAM tinh;
@@ -393,7 +398,7 @@ Ly do: cot `frameKB` cu chi la TRUNG BINH moi cua so (test9–17: 2.3–5.4 KB; 
 
 ---
 
-## Muc 12 — Giam slot Root 24576 → 12288 (chi phan tich, CHUA SUA)
+## Muc 12 — Giam slot Root 24576 → 12288 (lan 3 chi phan tich; lan 4 da sua — Muc 13)
 
 **JPEG lon nhat Leaf co the gui hien nay**
 - Camera: `CAM_FRAME_SIZE FRAMESIZE_QVGA` (320×240), `CAM_JPEG_QUALITY 12`, `CAM_FB_COUNT 1`, fb trong
@@ -451,6 +456,79 @@ cach do moi.
 
 ---
 
+## Lan 4 — test18 va giam slot (Muc 13–17)
+
+**test18** (`data/2026-10-01/test18.csv`, 2 Leaf, 06:32:33–06:38:45Z ≈ 6 phut, 187 cua so, Root
+`2026-10-01b`, Leaf `2026-10-01a`, slot van 24576):
+
+| Dai luong | Gia tri |
+|---|---|
+| `heapDefKB` (luc gui) trung vi | 48.0 KB |
+| `heapIntKB − heapDefKB` | 44.56 KB, khong doi suot phien (xac nhan Muc 9: INTERNAL = DEFAULT + IRAM) |
+| `heapDefMinWinKB` trung vi / p5 / p1 / thap nhat | 40.7 / 33.5 / 23.7 / **21.4** KB — 2/187 cua so < 24 KB (truot tieu chi de xuat) |
+| `heapDefLargestKB` trung vi / p5 / thap nhat | 31.0 / 23.0 / **6.5** KB — co luc phan manh nang |
+| `frameMaxBytesBoot` | **5887 B** (tren 24576 → slot dung chua toi 1/4) |
+| `uartDrop` / `lateChunkDrop` | 25 → 47 (**+22**) / 11 → 36 (**+25**) trong phien |
+| `dropPct` trung binh | 0.44 % |
+| Guard 16 KB | khong kich hoat (khong cua so nao < 16 KB) |
+
+### Muc 13 — Giam slot 24576 → 12288, giu 4 slot (commit `aeb49f0`)
+- `MAX_FRAME_SIZE 12288`, `MAX_CHUNKS_PER_FRAME 12` o Root (`node_root/mesh_config.h:98–99`) va Leaf
+  (`node_camera/mesh_config.h:77–78`); comment lien quan (`node_root.ino:17`, `:98–99`, `:1114–1117`,
+  `node_root/mesh_config.h:86–95`); `UART_PROTOCOL.md:47` va doan `frame_max_bytes_*`.
+- Log khoi dong in them heap DEFAULT: `[SYS] Heap int/def truoc init_memory()`,
+  `[MEM] Heap int/def truoc cap phat`, `[MEM] Heap int/def con lai sau cap phat`, va
+  `[SYS] HTTP: TAT | … | heap DEFAULT: Z byte`.
+
+### Muc 14 — Leaf dem frame qua co, `"big"` trong `#NSTAT` (commit `2b45e58`)
+- Leaf: `frames_too_big++` khi `fb->len > MAX_FRAME_SIZE` (nhanh bo frame co san, `node_camera.ino`
+  ngay sau kiem SOI), log `[CAM] Frame qua lon: … da bo N frame`; `#NSTAT` them `"big":N` (tich luy tu
+  luc Leaf khoi dong).
+- Root: `NodeStat.has_big/big`, telemetry `nodes[].big` (null = Leaf fw cu). Them ~12 B/node vao JSON
+  telemetry (buffer 4096, van du cho 8 node).
+- Dashboard: dong thong tin o camera hien "· qua co N" (mau canh bao) khi N > 0; tooltip node trong
+  cay mesh "Frame qua co Leaf bo: N". CSV them cot `big_by_node` = `id:N;…`.
+
+### Muc 15 — Dieu kien bo anh o UART (commit `7d68445`)
+- Cu: bo khi `availableForWrite() < buf/2` (4096). Frame lon hon phan trong (vd 5.9 KB khi trong 4.1 KB)
+  van duoc ghi → `Serial.write()` cho toi khi phan du ra day.
+- Moi: bo khi `availableForWrite() < 7 + 10 + jpeg_len + 2` (ca khung). Nhanh `uart_tx_buf_size = 0`
+  (khong co TX buffer) giu nguyen: ghi chan.
+- He qua: JPEG > 8173 B (buffer 8192) **luon** bi bo o UART va dem `uart_drop`. Frame lon nhat da do
+  5887 B nen hien chua cham, nhung neu anh lon hon (canh sang/nhieu chi tiet) se mat o day chu khong
+  phai o Leaf. Neu thay `uart_drop` tang ma `big` = 0, xem `frameMaxBytesWin` > 8173.
+- Con 1 cho co the cho ngan: dieu kien KHONG cong du phong cho header item / duoi ring buffer NOSPLIT
+  (khac `uart_room_for()` cua TELEMETRY/LOG), nen khi buffer bi chia vun `Serial.write()` van co the
+  cho ~≤ 2 KB ra day (≈ 22 ms o 921600). Neu muon tuyet doi khong cho thi dung `uart_room_for()`,
+  doi lai frame ~5.9 KB can buffer gan nhu trong (≈ 8.1 KB) → `uart_drop` se tang. Chua lam, can duyet.
+- Du kien `uart_drop` tang so voi test18 (dieu kien chat hon); doi lai ghi anh it khi phai cho, co the
+  thay o `loopMaxMs` (chua do).
+
+### Muc 16 — FW_VERSION (commit `5577ddb`)
+Root `2026-10-01c`, Leaf `2026-10-01b`. Compile `esp32:esp32:esp32cam` (core 2.0.17): Root 1 088 977 B
+flash / 57 288 B RAM tinh; Leaf 1 145 741 B / 58 036 B. `test_protocol.js` 8/8. JSX dashboard qua Babel
+OK. **Chua nap board.**
+
+### Muc 17 — Heap DEFAULT luc khoi dong truoc/sau giam slot
+- **Chua co so do that.** Dong `[SYS]`/`[MEM]` la khung LOG; middleware chi in khung LOG ra console
+  (`server.js:69`), khong ghi file, va `data/raw/` chi chua byte NGOAI khung → khong co ban luu nao.
+  Lan nap toi can chep lai console luc khoi dong (vd `node server.js COMx | tee boot.log`).
+- Them nua, Root `2026-10-01b` tro ve truoc chi in INTERNAL (`ESP.getFreeHeap()`) trong cac dong nay;
+  tu `2026-10-01c` moi in ca DEFAULT.
+- Du kien (tinh, chua do):
+
+| | Truoc (slot 24576) | Sau (slot 12288) |
+|---|---|---|
+| 4 buffer ghep (`[MEM] Du kien cap phat`) | 98 304 B (96 KB) | 49 152 B (48 KB) |
+| `[MEM]` DEFAULT truoc − sau cap phat | ≈ 96 KB + header khoi malloc | ≈ 48 KB + header khoi malloc |
+| Heap DEFAULT luc chay (`heapDefKB`) | 48.0 KB (test18, do that) | ≈ 96 KB |
+| `heapDefMinWinKB` thap nhat | 21.4 KB (test18) | ≈ 69 KB neu cac cu sut giu nguyen |
+
+  Dieu kien: Root khong PSRAM (`ps_malloc` that bai → `malloc` = DEFAULT) — dung voi `psram_free` = 0.
+  `heap_def_largest` sau giam slot khong suy ra duoc bang cong tru (phu thuoc vi tri khoi), phai do.
+
+---
+
 ## Bang truong telemetry moi (Root → middleware)
 
 | Truong | Kieu | Y nghia |
@@ -468,6 +546,7 @@ cach do moi.
 | `frame_max_bytes_boot` | uint | JPEG lon nhat Root ghep xong tu luc khoi dong (tu `2026-10-01b`) |
 | `rx_q` | null | Hang doi nhan painlessMesh — khong doc duoc qua API (luon null) |
 | `nodes[].stg` | 0/1/null | `STAGGER_ENABLE` cua Leaf (tu `#NSTAT "stg"`), null = Leaf fw cu |
+| `nodes[].big` | uint/null | So frame Leaf bo vi > `MAX_FRAME_SIZE`, tich luy (tu `#NSTAT "big"`, Leaf ≥ `2026-10-01b`) |
 
 Khung LOG moi: `[SYS] HTTP: TAT | Heap truoc/sau khoi HTTP: X / Y byte` (moi lan khoi dong);
 `[BOOT] WDT reset (ly do N): loop_max_ms=… heap_cuoi=… heap_def_min_win=… stage=… up_s=…` (sau reset 5/6/7;
@@ -499,7 +578,13 @@ truoc `2026-10-01b` la `heap_min_win=`); `[HEAP] RESTART: heap DEFAULT trong …
 | `31690c1` | feat(root): tach heap INTERNAL/DEFAULT trong telemetry, them heap_def_largest |
 | `d57c8e2` | fix(root): heap guard do heap DEFAULT, nguong HEAP_DEF_CRITICAL_BYTES 16384 |
 | `0733400` | feat(root): telemetry frame_max_bytes_win/boot (frame lon nhat Root ghep xong) |
-| (commit nay) | docs: bao cao lan 3 — heap INTERNAL/DEFAULT, bien an toan, phan tich giam slot |
+| `4e5e502` | docs: bao cao lan 3 — heap INTERNAL/DEFAULT, bien an toan, phan tich giam slot |
+| `aeb49f0` | feat(fw): giam slot ghep anh 24576 -> 12288 B (Root + Leaf), giu 4 slot |
+| `2b45e58` | feat(leaf): dem frame bo vi qua MAX_FRAME_SIZE, gui "big" trong #NSTAT |
+| `7d68445` | fix(root): bo anh o UART khi TX buffer khong du ca khung (thay nguong nua buffer) |
+| `5577ddb` | chore(fw): tang FW_VERSION Root 2026-10-01c, Leaf 2026-10-01b |
+| `20ddd79` | chore(data): them test18.csv (2 Leaf, 6 phut, Root 2026-10-01b) |
+| (commit nay) | docs: bao cao lan 4 — test18, giam slot, heap khoi dong |
 
 Ghi chu: Muc 2 sua SAU commit tang FW_VERSION nhung FW van la `2026-10-01a` (chua nap board nao voi
 ban `2026-10-01a` truoc do). Hai commit `0bb504b`, `bd3f7f4` chi sua lai message (so test 15/15, "Muc 7")
@@ -514,10 +599,15 @@ Chuan bi
 - [ ] Nap Root `firmware/node_root` (Board AI Thinker ESP32-CAM, PSRAM theo board dang dung).
 - [ ] Nap CA 3 Leaf `firmware/node_camera` (can `stg` + fw moi cho cot CSV).
 - [ ] `cd middleware && node server.js COMx` — log phai co `[RAW] Byte tho ngoai khung -> …data\raw\uart_raw_….log`.
-- [ ] Log khoi dong Root co: `[SYS] Firmware: 2026-10-01b`, `[SYS] HTTP: TAT | Heap truoc/sau …`,
+- [ ] Nap CA Root va moi Leaf: `MAX_FRAME_SIZE` phai khop (12288) — Leaf cu (24576) se gui frame
+      12–24 KB ma Root tu choi tung chunk.
+- [ ] Chep console middleware luc Root khoi dong (`node server.js COMx | tee …`), giu cac dong
+      `[SYS] Heap int/def …`, `[MEM] Heap int/def truoc cap phat …`, `[MEM] … con lai sau cap phat …`
+      → dien so that vao Muc 17.
+- [ ] Log khoi dong Root co: `[SYS] Firmware: 2026-10-01c`, `[SYS] HTTP: TAT | Heap truoc/sau …`,
       KHONG con dong `[HTTP] Server KHOI DONG`, KHONG in SSID router.
 - [ ] Dashboard: o "Loop max", "DEFAULT min cua so", "DEFAULT khoi lon nhat", "UART hoan" co so;
-      the "Heap DEFAULT trong" co note INTERNAL; bang Leaf hien fw `2026-10-01a`.
+      the "Heap DEFAULT trong" co note INTERNAL; o camera/cay mesh hien fw Leaf `2026-10-01b`.
 - [ ] Ctrl+F5 dashboard (tranh JS cu), bat ghi so lieu tab "So sanh".
 
 Soak 1 — 2 Leaf, 30 phut
@@ -533,7 +623,10 @@ Tieu chi DAT (moi soak)
 - [ ] **drop < 2 %**: `dropPct` trung binh (dong summary CSV) < 2.
 - [ ] **heap DEFAULT ≥ 24 KB** (de xuat, can duyet; thay tieu chi cu "heap_min_win > 70 KB" do sai
       thang INTERNAL): `heapDefMinWinKB` nho nhat trong CSV ≥ 24; khong co dong `[HEAP] RESTART`.
-- [ ] Ghi `frameMaxBytesBoot` cuoi phien va `heapDefLargestKB` nho nhat (dau vao cho Muc 12).
+- [ ] Ghi `frameMaxBytesBoot` cuoi phien va `heapDefLargestKB` nho nhat.
+- [ ] **`big_by_node` = 0 moi node** (khong frame nao > 12288 bi Leaf bo); neu > 0 → xem lai
+      `MAX_FRAME_SIZE` hoac `CAM_JPEG_QUALITY`.
+- [ ] Ghi `uartDrop` dau/cuoi phien, so voi test18 (+22 / 6 phut) — dieu kien Muc 15 chat hon.
 - [ ] **loop_max_ms < 1000**: `loopMaxMs` lon nhat trong CSV < 1000.
 - [ ] Ghi them de doi chieu: `silent_events` khong tang khi khong rut node (kiem Muc 1);
       `late_chunk_drop` (Muc 2 — > 0 nghia la co chunk tre da duoc chan, frames_drop phai thap hon
