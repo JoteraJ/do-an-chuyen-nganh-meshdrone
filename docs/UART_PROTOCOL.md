@@ -210,7 +210,7 @@ khung TELEMETRY đã ghi thành công (~2 s), reset sau mỗi lần gửi.
 
 Heap (Root từ 2026-10-01b; byte). Hai phạm vi đo khác nhau, **không so trực tiếp**:
 - **DEFAULT** (`MALLOC_CAP_DEFAULT`) = heap mà `malloc()`/`new`/`String` dùng được.
-  Với Root hiện tại đây là DRAM nội (số đo ~45 KB cho thấy board không có PSRAM; nếu
+  Với Root hiện tại đây là DRAM nội (Root không có PSRAM khả dụng, `psram_free` = 0; nếu
   có PSRAM và `CONFIG_SPIRAM_USE_MALLOC`, DEFAULT tính cả PSRAM).
 - **INTERNAL** (`MALLOC_CAP_INTERNAL`, mọi hàm `ESP.*Heap()` của Arduino core) = DEFAULT
   cộng IRAM còn trống mà malloc thường không cấp phát. Test17: INTERNAL ≈ DEFAULT + 47 KB.
