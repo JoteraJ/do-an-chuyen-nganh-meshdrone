@@ -133,6 +133,311 @@
 
     [data-tile]:fullscreen { background: #000; }
   </style>
+
+  <style>
+    /* UI components from Uiverse.io (MIT License) — tác giả: Yaya12085, mrhyddenn, mobinkakei, sahilxkhadka, PriyanshuGupta28, Satwinder04 */
+    /* Mọi class / keyframes đều có tiền tố "mdx-" để không đụng Tailwind (shadow, animate-pulse…) và không đụng nhau. */
+
+    /* From Uiverse.io by Yaya12085 - Tags: loader, pulse */
+    .mdx-pulse-dot {
+      height: 8px;
+      width: 8px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      background-color: #69ffa8;
+      animation: 1.5s mdx-pulse infinite ease-in-out;
+    }
+    /* Không kết nối → đứng yên */
+    .mdx-pulse-dot.mdx-bad   { background-color: var(--critical); animation: none; }
+    .mdx-pulse-dot.mdx-stale { background-color: var(--warning);  animation: none; }
+    .mdx-pulse-dot.mdx-idle  { background-color: #52525B;         animation: none; }
+    @keyframes mdx-pulse {
+      0%   { box-shadow: 0 0 0 0 #69ffa8; }
+      100% { box-shadow: 0 0 0 6px #69ffa800; }
+    }
+
+    /* From Uiverse.io by mrhyddenn - Tags: loader */
+    .mdx-radar {
+      position: relative;
+      width: 120px;
+      height: 120px;
+      flex-shrink: 0;
+      background: transparent;
+      border-radius: 50%;
+      box-shadow: 20px 20px 60px rgba(0, 0, 0, 0.55);
+      border: 1px solid #3f3f46;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .mdx-radar::before {
+      content: '';
+      position: absolute;
+      inset: 16px;
+      background: transparent;
+      border: 1px dashed #52525b;
+      border-radius: 50%;
+      box-shadow: inset -5px -5px 25px rgba(0, 0, 0, 0.25),
+                  inset 5px 5px 35px rgba(0, 0, 0, 0.25);
+    }
+    .mdx-radar::after {
+      content: '';
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px dashed #52525b;
+      box-shadow: inset -5px -5px 25px rgba(0, 0, 0, 0.25),
+                  inset 5px 5px 35px rgba(0, 0, 0, 0.25);
+    }
+    .mdx-radar .mdx-radar-sweep {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 50%;
+      height: 100%;
+      background: transparent;
+      transform-origin: top left;
+      animation: mdx-radar 2s linear infinite;
+      border-top: 1px dashed var(--accent);
+    }
+    .mdx-radar .mdx-radar-sweep::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #10b981;
+      transform-origin: top left;
+      transform: rotate(-55deg);
+      filter: blur(30px) drop-shadow(20px 20px 20px #10b981);
+    }
+    @keyframes mdx-radar {
+      0%   { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* From Uiverse.io by mobinkakei - Tags: loader, wifi */
+    .mdx-wifi-loader {
+      --background: #62abff;
+      --front-color: var(--accent);
+      --back-color: #3f3f46;
+      --text-color: #71717a;
+      width: 64px;
+      height: 64px;
+      border-radius: 50px;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .mdx-wifi-loader svg {
+      position: absolute;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .mdx-wifi-loader svg circle {
+      position: absolute;
+      fill: none;
+      stroke-width: 6px;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transform: rotate(-100deg);
+      transform-origin: center;
+    }
+    .mdx-wifi-loader svg circle.mdx-back  { stroke: var(--back-color); }
+    .mdx-wifi-loader svg circle.mdx-front { stroke: var(--front-color); }
+    .mdx-wifi-loader svg.mdx-circle-outer { height: 86px; width: 86px; }
+    .mdx-wifi-loader svg.mdx-circle-outer circle { stroke-dasharray: 62.75 188.25; }
+    .mdx-wifi-loader svg.mdx-circle-outer circle.mdx-back  { animation: mdx-circle-outer 1.8s ease infinite 0.3s; }
+    .mdx-wifi-loader svg.mdx-circle-outer circle.mdx-front { animation: mdx-circle-outer 1.8s ease infinite 0.15s; }
+    .mdx-wifi-loader svg.mdx-circle-middle { height: 60px; width: 60px; }
+    .mdx-wifi-loader svg.mdx-circle-middle circle { stroke-dasharray: 42.5 127.5; }
+    .mdx-wifi-loader svg.mdx-circle-middle circle.mdx-back  { animation: mdx-circle-middle 1.8s ease infinite 0.25s; }
+    .mdx-wifi-loader svg.mdx-circle-middle circle.mdx-front { animation: mdx-circle-middle 1.8s ease infinite 0.1s; }
+    .mdx-wifi-loader svg.mdx-circle-inner { height: 34px; width: 34px; }
+    .mdx-wifi-loader svg.mdx-circle-inner circle { stroke-dasharray: 22 66; }
+    .mdx-wifi-loader svg.mdx-circle-inner circle.mdx-back  { animation: mdx-circle-inner 1.8s ease infinite 0.2s; }
+    .mdx-wifi-loader svg.mdx-circle-inner circle.mdx-front { animation: mdx-circle-inner 1.8s ease infinite 0.05s; }
+    .mdx-wifi-loader .mdx-text {
+      position: absolute;
+      bottom: -40px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      white-space: nowrap;
+      font-weight: 500;
+      font-size: 14px;
+      letter-spacing: 0.2px;
+    }
+    .mdx-wifi-loader .mdx-text::before, .mdx-wifi-loader .mdx-text::after { content: attr(data-text); }
+    .mdx-wifi-loader .mdx-text::before { color: var(--text-color); }
+    .mdx-wifi-loader .mdx-text::after {
+      color: var(--front-color);
+      animation: mdx-text-animation 3.6s ease infinite;
+      position: absolute;
+      left: 0;
+    }
+    @keyframes mdx-circle-outer {
+      0%   { stroke-dashoffset: 25; }
+      25%  { stroke-dashoffset: 0; }
+      65%  { stroke-dashoffset: 301; }
+      80%  { stroke-dashoffset: 276; }
+      100% { stroke-dashoffset: 276; }
+    }
+    @keyframes mdx-circle-middle {
+      0%   { stroke-dashoffset: 17; }
+      25%  { stroke-dashoffset: 0; }
+      65%  { stroke-dashoffset: 204; }
+      80%  { stroke-dashoffset: 187; }
+      100% { stroke-dashoffset: 187; }
+    }
+    @keyframes mdx-circle-inner {
+      0%   { stroke-dashoffset: 9; }
+      25%  { stroke-dashoffset: 0; }
+      65%  { stroke-dashoffset: 106; }
+      80%  { stroke-dashoffset: 97; }
+      100% { stroke-dashoffset: 97; }
+    }
+    @keyframes mdx-text-animation {
+      0%   { clip-path: inset(0 100% 0 0); }
+      50%  { clip-path: inset(0); }
+      100% { clip-path: inset(0 0 0 100%); }
+    }
+
+    /* From Uiverse.io by sahilxkhadka - Tags: loader, message, animated, skeleton loading
+       (chỉ dùng class Tailwind, xem MdxFrameSkeleton) */
+
+    /* From Uiverse.io by Yaya12085 - Source: https://daisyui.com/components/stat/ - Tags: stats, card, dark */
+    .mdx-stats {
+      display: grid;
+      min-width: 0;
+      background-color: var(--surface-2);
+      color: var(--text);
+      border-radius: 8px;
+      border: 1px solid #27272a;
+    }
+    .mdx-shadow {
+      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    }
+    .mdx-stat {
+      display: grid;
+      width: 100%;
+      min-width: 0;
+      grid-template-columns: repeat(1, minmax(0, 1fr));
+      column-gap: 1rem;
+      row-gap: 0.375rem;
+      padding: 0.625rem 0.75rem;
+    }
+    .mdx-stat-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 0.75rem; min-width: 0; }
+    .mdx-stat-title {
+      grid-column-start: 1;
+      font-size: 11px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: #a1a1aa;
+      margin-bottom: 0.25rem;
+    }
+    .mdx-stat-value {
+      grid-column-start: 1;
+      white-space: nowrap;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 20px;
+      line-height: 1.5rem;
+      font-weight: 600;
+    }
+    .mdx-stat-empty { font-size: 12px; line-height: 1.5rem; color: #71717a; }
+    .mdx-stat-desc {
+      grid-column-start: 1;
+      font-size: 10px;
+      line-height: 0.875rem;
+      color: #71717a;
+    }
+    .mdx-stats.mdx-sm .mdx-stat { padding: 0.5rem 0.625rem; row-gap: 0.125rem; }
+    .mdx-stats.mdx-sm .mdx-stat-title { margin-bottom: 0; }
+    .mdx-stats.mdx-sm .mdx-stat-value { font-size: 15px; line-height: 1.25rem; }
+    .mdx-stats.mdx-sm .mdx-stat-empty { line-height: 1.25rem; }
+
+    /* From Uiverse.io by PriyanshuGupta28 - Tags: alert, card, toast, aleartToast */
+    .mdx-toast-stack {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 60;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      max-width: calc(100vw - 40px);
+      pointer-events: none;
+    }
+    .mdx-toast {
+      background-color: var(--surface-2);
+      color: var(--text);
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid #3f3f46;
+      box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: auto;
+      animation: mdx-toast-in .22s ease-out;
+    }
+    .mdx-toast-icon svg {
+      width: 30px;
+      height: 20px;
+      fill: #69ffa8;
+    }
+    .mdx-toast-icon-warn { width: 30px; text-align: center; font: 700 16px/20px var(--font-mono); color: #fbbf24; }
+    .mdx-toast-content {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+    }
+    @keyframes mdx-toast-in {
+      from { opacity: 0; transform: translateX(16px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    /* From Uiverse.io by Satwinder04 - Tags: loader */
+    .mdx-loader3 {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    .mdx-bars {
+      width: 3px;
+      height: 10px;
+      margin: 0 1px;
+      border-radius: 1px;
+      background-color: var(--accent);
+      animation: mdx-loader3 3s ease-in-out infinite;
+    }
+    .mdx-bar1 { animation-delay: -0.8s; }
+    .mdx-bar2 { animation-delay: -0.7s; }
+    .mdx-bar3 { animation-delay: -0.6s; }
+    .mdx-bar4 { animation-delay: -0.5s; }
+    .mdx-bar5 { animation-delay: -0.4s; }
+    .mdx-bar6 { animation-delay: -0.3s; }
+    /* Không nhận frame trong 2 s → xám, đứng yên */
+    .mdx-loader3.mdx-idle .mdx-bars { background-color: #52525b; animation: none; }
+    @keyframes mdx-loader3 {
+      0%  { transform: scale(1); }
+      20% { transform: scale(1, 1.6); }
+      40% { transform: scale(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      [class*="mdx-"], [class*="mdx-"]::before, [class*="mdx-"]::after { animation: none !important; }
+    }
+  </style>
 </head>
 <body class="antialiased overflow-x-hidden">
 
@@ -140,6 +445,126 @@
 
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo } = React;
+
+    /* ================================================================
+     *  Component giao diện từ Uiverse.io (MIT) — CHỈ trình bày, không
+     *  tính số liệu. CSS ở khối <style> tiền tố "mdx-" trong <head>.
+     * ================================================================ */
+
+    // Chấm trạng thái (Yaya12085): 'ok' nhấp nháy; 'bad' / 'stale' / 'idle' đứng yên
+    function MdxPulseDot({ state }) {
+      return <span className={`mdx-pulse-dot${state === 'ok' ? '' : ` mdx-${state}`}`} aria-hidden="true"></span>;
+    }
+
+    // Radar chờ node (mrhyddenn) — chỉ mount khi đang chờ Leaf
+    function MdxRadar() {
+      return <div className="mdx-radar" aria-hidden="true"><span className="mdx-radar-sweep"></span></div>;
+    }
+
+    // WiFi loader (mobinkakei) — chỉ mount khi mất kết nối Socket.IO
+    function MdxWifiLoader({ text = 'Đang kết nối lại' }) {
+      return (
+        <div className="mdx-wifi-loader" aria-hidden="true">
+          <svg className="mdx-circle-outer" viewBox="0 0 86 86">
+            <circle className="mdx-back" cx="43" cy="43" r="40"></circle>
+            <circle className="mdx-front" cx="43" cy="43" r="40"></circle>
+            <circle className="mdx-new" cx="43" cy="43" r="40"></circle>
+          </svg>
+          <svg className="mdx-circle-middle" viewBox="0 0 60 60">
+            <circle className="mdx-back" cx="30" cy="30" r="27"></circle>
+            <circle className="mdx-front" cx="30" cy="30" r="27"></circle>
+          </svg>
+          <svg className="mdx-circle-inner" viewBox="0 0 34 34">
+            <circle className="mdx-back" cx="17" cy="17" r="14"></circle>
+            <circle className="mdx-front" cx="17" cy="17" r="14"></circle>
+          </svg>
+          <div className="mdx-text" data-text={text}></div>
+        </div>
+      );
+    }
+
+    // Cột hoạt động (Satwinder04): đèn báo "đang nhận ảnh" (frame trong 2 s gần nhất), KHÔNG phải biểu đồ
+    function MdxActivityBars({ active }) {
+      return (
+        <span className={`mdx-loader3 pointer-events-auto${active ? '' : ' mdx-idle'}`} role="img"
+              title={active ? 'Đang nhận ảnh' : 'Không nhận ảnh trong 2 giây gần nhất'}
+              aria-label={active ? 'Đang nhận ảnh' : 'Không nhận ảnh'}>
+          {[1, 2, 3, 4, 5, 6].map((i) => <span key={i} className={`mdx-bars mdx-bar${i}`}></span>)}
+        </span>
+      );
+    }
+
+    // Skeleton khung ảnh (sahilxkhadka) — ô của leaf đã vào mesh nhưng chưa có frame đầu tiên.
+    // Không hiện số liệu nào, chỉ tên/ID drone (lấy từ node_ids) và dòng "chờ frame đầu tiên".
+    function MdxFrameSkeleton({ nodeId, order }) {
+      return (
+        <div className="relative w-full h-full min-h-0 min-w-0 overflow-hidden rounded-md flex items-center justify-center p-8"
+             style={{ background: 'var(--surface-2)' }}>
+          {/* From Uiverse.io by sahilxkhadka — đổi bố cục thành khung ảnh + 2 thanh chữ */}
+          <div className="h-[80%] aspect-[4/3] max-w-full flex flex-col gap-2 animate-pulse motion-reduce:animate-none" aria-hidden="true">
+            <div className="flex-1 min-h-0 rounded-lg bg-zinc-700"></div>
+            <div className="h-2.5 w-3/5 shrink-0 rounded-lg bg-zinc-700"></div>
+            <div className="h-2.5 w-[90%] shrink-0 rounded-lg bg-zinc-700"></div>
+          </div>
+          <div className="absolute top-0 left-0 p-1.5 pointer-events-none">
+            <div className="mono bg-black/70 px-1.5 py-0.5 rounded leading-tight">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-100">
+                {droneLabel(nodeId, order).toUpperCase()} <MdxActivityBars active={false} />
+              </div>
+              <div className="text-[9px] text-zinc-500">ID {nodeId}</div>
+            </div>
+          </div>
+          <div className="absolute bottom-0 left-0 p-1.5 pointer-events-none">
+            <div className="mono text-[11px] bg-black/70 text-zinc-400 px-1.5 py-0.5 rounded">chờ frame đầu tiên</div>
+          </div>
+        </div>
+      );
+    }
+
+    // Thẻ số liệu (Yaya12085 / daisyUI stat). value == null → "chưa có dữ liệu".
+    // aside: phần tử bên phải (sparkline); children: phần giữa value và desc (thanh tiến trình).
+    function MdxStatCard({ title, value, desc, size, valueClass = '', valueStyle, aside, children }) {
+      return (
+        <div className={`mdx-stats mdx-shadow${size === 'sm' ? ' mdx-sm' : ''}`}>
+          <div className="mdx-stat">
+            <div className="mdx-stat-head">
+              <div className="min-w-0">
+                <div className="mdx-stat-title">{title}</div>
+                {value == null
+                  ? <div className="mdx-stat-empty">chưa có dữ liệu</div>
+                  : <div className={`mdx-stat-value ${valueClass}`} style={valueStyle}>{value}</div>}
+              </div>
+              {aside}
+            </div>
+            {children}
+            {desc && <div className="mdx-stat-desc">{desc}</div>}
+          </div>
+        </div>
+      );
+    }
+
+    // Toast (PriyanshuGupta28): kind 'ok' → ✓ xanh, 'warn' → ! amber
+    function MdxToastStack({ toasts }) {
+      return (
+        <div className="mdx-toast-stack" role="status" aria-live="polite">
+          {toasts.map((t) => (
+            <div key={t.id} className="mdx-toast">
+              <div className="mdx-toast-content">{t.msg}</div>
+              {t.kind === 'ok' ? (
+                <div className="mdx-toast-icon">
+                  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M0 0h24v24H0z" fill="none"></path>
+                    <path d="M15.795 8.342l-5.909 9.545a1 1 0 0 1-1.628 0l-3.182-4.909a1 1 0 0 1 1.629-1.165l2.556 3.953L14.165 7.51a1 1 0 0 1 1.63 1.165z"></path>
+                  </svg>
+                </div>
+              ) : (
+                <div className="mdx-toast-icon-warn" aria-hidden="true">!</div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
 
     /* ================================================================
      *  Toàn bộ số liệu đến từ middleware qua Socket.IO, đúng
@@ -383,11 +808,12 @@
 
     // ── Thành phần giao diện dùng chung ─────────────────────────
     // state: 'ok' (xanh, pulse) | 'bad' (đỏ) | 'stale' (vàng) | 'idle' (xám)
-    function StatusBadge({ state, label, className = '' }) {
+    // mdxDot: dùng chấm pulse Uiverse (badge ở header)
+    function StatusBadge({ state, label, className = '', mdxDot = false }) {
       const txt = { ok: 'text-emerald-400', bad: 'text-red-400', stale: 'text-yellow-300', idle: 'text-zinc-400' }[state];
       return (
         <span className={`inline-flex items-center gap-1.5 mono text-[11px] font-medium px-2 py-0.5 rounded-full bg-black/25 whitespace-nowrap ${txt} ${className}`}>
-          <span className={`dot dot-${state}`}></span>{label}
+          {mdxDot ? <MdxPulseDot state={state} /> : <span className={`dot dot-${state}`}></span>}{label}
         </span>
       );
     }
@@ -438,23 +864,12 @@
     function MetricCard({ label, value, unit, valueColor = '#FAFAFA', spark, sparkColor, bar, barColor, note }) {
       const has = value != null;
       return (
-        <div className="nested px-3 py-2.5 flex flex-col gap-2">
-          <div className="flex items-end justify-between gap-3">
-            <div className="min-w-0">
-              <div className="label mb-1">{label}</div>
-              {has ? (
-                <div className="mono text-[20px] leading-6 font-semibold" style={{ color: valueColor }}>
-                  {value}{unit && <span className="text-[12px] font-normal text-zinc-400 ml-1">{unit}</span>}
-                </div>
-              ) : (
-                <div className="text-[12px] leading-6 text-zinc-500">chưa có dữ liệu</div>
-              )}
-            </div>
-            {spark !== undefined && <Sparkline data={spark} color={sparkColor} />}
-          </div>
+        <MdxStatCard title={label}
+                     value={has ? <>{value}{unit && <span className="text-[12px] font-normal text-zinc-400 ml-1">{unit}</span>}</> : null}
+                     valueStyle={{ color: valueColor }} desc={note}
+                     aside={spark !== undefined && <Sparkline data={spark} color={sparkColor} />}>
           {bar !== undefined && <ProgressBar frac={has ? bar : null} color={barColor} />}
-          {note && <div className="text-[10px] text-zinc-500 -mt-0.5">{note}</div>}
-        </div>
+        </MdxStatCard>
       );
     }
 
@@ -785,7 +1200,7 @@
     }
 
     // ── Tab so sánh ──────────────────────────────────────────────
-    function CompareTab({ store, recording, setRecording, onReset, currentLeaf }) {
+    function CompareTab({ store, recording, setRecording, onReset, currentLeaf, onToast }) {
       const { stats, timeline } = store;
       const healAggs = useMemo(() => {
         const o = {};
@@ -895,7 +1310,8 @@
                 <span className={`rec-dot ${recording ? 'rec-on' : ''}`} aria-hidden="true"></span>
                 {recording ? 'Đang ghi' : 'Tạm dừng ghi'}
               </button>
-              <button onClick={exportCsv} disabled={!timeline.length} className="btn mono">Xuất CSV</button>
+              <button onClick={() => { exportCsv(); if (onToast) onToast('ok', `Đã xuất CSV (${timeline.length} mẫu)`); }}
+                      disabled={!timeline.length} className="btn mono">Xuất CSV</button>
               <button onClick={onReset} className="btn mono hover:!text-red-300 hover:!bg-red-950/40">Xoá dữ liệu</button>
             </div>
             <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -1150,6 +1566,7 @@
     // ── Ô hiển thị một luồng camera ─────────────────────────────
     function FrameTile({ nodeId, f, latMs, info, order, big, onClick }) {
       const stale = Date.now() - f.ts > STALE_FRAME_MS;
+      const receiving = Date.now() - f.ts < 2000;   // chỉ cho đèn MdxActivityBars
       const goFull = (e) => {
         e.stopPropagation();
         const el = e.currentTarget.closest('[data-tile]');
@@ -1170,7 +1587,10 @@
           <div className="absolute top-0 left-0 right-0 flex justify-between items-start p-1.5 pointer-events-none">
             <div className="flex flex-col items-start gap-0.5 min-w-0">
               <div className="mono bg-black/70 px-1.5 py-0.5 rounded leading-tight">
-                <div className="text-[11px] font-medium text-zinc-100">{droneLabel(nodeId, order).toUpperCase()} · #{f.frameId}</div>
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-100">
+                  <span>{droneLabel(nodeId, order).toUpperCase()} · #{f.frameId}</span>
+                  <MdxActivityBars active={receiving} />
+                </div>
                 <div className="text-[9px] text-zinc-500">ID {nodeId}</div>
               </div>
               <div className="mono text-[11px] bg-black/70 text-zinc-300 px-1.5 py-0.5 rounded truncate max-w-full">
@@ -1251,6 +1671,15 @@
 
       const addLog = (msg) => {
         setLogs((prev) => [{ time: new Date().toLocaleTimeString('vi-VN'), msg }, ...prev].slice(0, 50));
+      };
+
+      // ── Toast (state thuần UI, tối đa 3, tự ẩn sau 4 s) ─────────
+      const [toasts, setToasts] = useState([]);
+      const toastIdRef = useRef(0);
+      const pushToast = (kind, msg) => {
+        const id = ++toastIdRef.current;
+        setToasts((prev) => [...prev, { id, kind, msg }].slice(-3));
+        setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), 4000);
       };
 
       // Trang đang mở có phải bản cũ không? Socket.IO tự nối lại khi middleware khởi động lại,
@@ -1343,6 +1772,7 @@
             seenHealRef.current.add(key);
             setLastHeal(ev);
             addLog(`SELF-HEALING (luồng dữ liệu): node ${shortId(ev.id)} có chunk lại sau ${ev.ms} ms (mốc: ${HEAL_SRC_TEXT[ev.start_src] || ev.start_src}).`);
+            pushToast('warn', `Self-healing node ${ev.id}: ${ev.ms} ms`);
             if (recordingRef.current && LEAVES.includes(leaf)) {
               setCompare((st) => addHealNew(st, leaf, ev, now));
             }
@@ -1460,7 +1890,29 @@
         if (!window.confirm('Xoá toàn bộ số liệu so sánh đã ghi?')) return;
         prevTelRef.current = null;
         setCompare(emptyStore());
+        pushToast('ok', 'Đã xoá dữ liệu so sánh');
       };
+
+      // Toast kết nối middleware: chỉ khi socketConnected đổi (bỏ qua giá trị false lúc mở trang)
+      const prevSocketRef = useRef(false);
+      useEffect(() => {
+        if (socketConnected === prevSocketRef.current) return;
+        prevSocketRef.current = socketConnected;
+        pushToast(socketConnected ? 'ok' : 'warn', socketConnected ? 'Đã kết nối tới middleware' : 'Mất kết nối tới middleware');
+      }, [socketConnected]);
+
+      // Toast Leaf vào / rời mesh: so node_ids lần này với lần trước (telemetry đầu tiên chỉ lấy mốc, Root bỏ qua)
+      const prevNodeIdsRef = useRef(null);
+      useEffect(() => {
+        if (!Array.isArray(telemetry?.node_ids)) return;
+        const skip = new Set([...KNOWN_ROOT_IDS, String(rootIdRef.current)]);
+        const cur = new Set(telemetry.node_ids.map(String).filter((id) => !skip.has(id)));
+        const prev = prevNodeIdsRef.current;
+        prevNodeIdsRef.current = cur;
+        if (!prev) return;
+        cur.forEach((id) => { if (!prev.has(id)) pushToast('ok', `${droneLabel(id, droneOrder)} (ID ${id}) vào mạng mesh`); });
+        prev.forEach((id) => { if (!cur.has(id)) pushToast('warn', `${droneLabel(id, droneOrder)} (ID ${id}) rời mạng mesh`); });
+      }, [telemetry]);
 
       const now = Date.now();
       const nodeIds = telemetry?.node_ids || [];
@@ -1482,6 +1934,10 @@
       const droneNo = (id) => (Number.isFinite(droneOrder[id]) ? droneOrder[id] : Infinity);
       const frames = Object.entries(frameByNode).sort(([a], [b]) => droneNo(a) - droneNo(b) || Number(a) - Number(b));
       const focusEntry = frames.find(([id]) => id === focusId) || frames[0];
+      // Leaf đã có trong node_ids (telemetry còn mới) nhưng chưa nhận frame nào → ô MdxFrameSkeleton (chỉ trình bày)
+      const waitingIds = telFresh
+        ? nodeIds.map(String).filter((id) => !frameByNode[id] && !KNOWN_ROOT_IDS.includes(id) && id !== String(rootIdRef.current))
+        : [];
 
       // FPS hiển thị: về 0 khi quá STALE_FRAME_MS không có frame mới (đo thật, không giữ số cũ)
       const lastFrameAt = frameTimesRef.current[frameTimesRef.current.length - 1];
@@ -1537,8 +1993,9 @@
         : leafCount === 0 ? 'Root Node đang gửi telemetry nhưng chưa có node nào tham gia mesh.'
         : `Mesh có ${leafCount} node nhưng chưa nhận được frame ảnh nào.`;
 
-      const gridCols = frames.length <= 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2';
-      const gridRows = frames.length <= 2 ? 'lg:grid-rows-1' : 'lg:grid-rows-2';
+      const tileCount = frames.length + waitingIds.length;   // ô ảnh + ô skeleton trong chế độ lưới
+      const gridCols = tileCount <= 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2';
+      const gridRows = tileCount <= 2 ? 'lg:grid-rows-1' : 'lg:grid-rows-2';
 
       return (
         <div className="min-h-screen lg:h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
@@ -1559,6 +2016,19 @@
             </div>
           )}
 
+          {/* Mất kết nối Socket.IO: WiFi loader, chỉ mount khi chưa/mất kết nối (unmount khi 'connect') */}
+          {HAS_IO && !socketConnected && (
+            <div role="status" className="shrink-0 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-4 py-4"
+                 style={{ background: 'rgba(239, 68, 68, .08)' }}>
+              <div className="w-[150px] h-[86px] mb-9 flex items-center justify-center">
+                <MdxWifiLoader text="Đang kết nối lại" />
+              </div>
+              <div className="text-[12px] text-red-300 max-w-md text-center sm:text-left">
+                Mất kết nối tới middleware (server.js). Socket.IO đang tự kết nối lại…
+              </div>
+            </div>
+          )}
+
           {/* HEADER */}
           <header className="shrink-0 min-h-[52px] flex flex-wrap items-center gap-x-4 gap-y-2 px-3 sm:px-4 py-2"
                   style={{ background: 'var(--surface-1)', boxShadow: 'var(--shadow)' }}>
@@ -1570,9 +2040,9 @@
             </nav>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <span className="hidden md:inline label">Middleware</span>
-              <StatusBadge {...mwBadge} />
+              <StatusBadge {...mwBadge} mdxDot />
               <span className="hidden md:inline label ml-2">Root UART</span>
-              <StatusBadge {...rootBadge} />
+              <StatusBadge {...rootBadge} mdxDot />
               {/* Chỉ hiện số khi telemetry còn mới (middleware + Root đang nhận); không thì xám, không số */}
               <span className="mono text-[12px] font-semibold px-2.5 py-0.5 rounded-full ml-1 whitespace-nowrap"
                     style={telFresh && leafCount != null
@@ -1586,7 +2056,7 @@
           {tab === 'compare' ? (
             <div className="flex-1 overflow-y-auto">
               <CompareTab store={compare} recording={recording} setRecording={setRecording}
-                          onReset={resetCompare} currentLeaf={leafCount} />
+                          onReset={resetCompare} currentLeaf={leafCount} onToast={pushToast} />
             </div>
           ) : (
             <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)] gap-3 p-3">
@@ -1608,18 +2078,8 @@
                 <section className="panel p-3 flex flex-col gap-1.5">
                   <div className="panel-h mb-1">Telemetry · Root Node</div>
                   <div className="grid grid-cols-2 gap-1.5">
-                    <div className="nested px-2.5 py-2">
-                      <div className="label">Drone</div>
-                      {leafCount != null
-                        ? <div className="mono text-[20px] font-semibold" style={{ color: 'var(--accent)' }}>{leafCount}</div>
-                        : <div className="text-[12px] text-zinc-500 leading-7">chưa có dữ liệu</div>}
-                    </div>
-                    <div className="nested px-2.5 py-2">
-                      <div className="label">Layer</div>
-                      {telemetry?.layer != null
-                        ? <div className="mono text-[20px] font-semibold text-zinc-50">{telemetry.layer}</div>
-                        : <div className="text-[12px] text-zinc-500 leading-7">chưa có dữ liệu</div>}
-                    </div>
+                    <MdxStatCard title="Drone" value={leafCount} valueStyle={{ color: 'var(--accent)' }} />
+                    <MdxStatCard title="Layer" value={telemetry?.layer} valueClass="text-zinc-50" />
                   </div>
                   <MetricCard label="FPS đo tại dashboard" value={displayFps != null ? displayFps.toFixed(1) : null} unit="fps"
                               valueColor="var(--accent)" spark={histRef.current.fps} sparkColor="var(--accent)"
@@ -1636,11 +2096,17 @@
                               note={[heapBar.note, heapIntNow != null ? `INTERNAL (gồm IRAM) ${Math.round(heapIntNow / 1024)} KB` : null].filter(Boolean).join(' · ') || null} />
                   <MetricCard label="PSRAM trống" value={telemetry?.psram_free != null ? Math.round(telemetry.psram_free / 1024) : null} unit="KB"
                               bar={psramBar.frac} barColor="var(--accent)" note={psramBar.note} />
-                  <Row k="Frame ghép OK" v={telemetry?.frames_ok} cls="text-emerald-400" />
-                  <Row k="Frame bị hủy" v={telemetry?.frames_drop} cls="text-red-400" />
-                  <Row k="Chunk trễ bị bỏ" v={telemetry?.late_chunk_drop} cls={telemetry?.late_chunk_drop > 0 ? 'text-yellow-300' : 'text-zinc-50'} />
-                  <Row k="Chunk đã nhận" v={telemetry?.chunks} />
-                  <Row k="Ảnh bỏ ở UART (TX đầy)" v={telemetry?.uart_drop} cls={telemetry?.uart_drop > 0 ? 'text-yellow-300' : 'text-zinc-50'} />
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      ['Frame ghép OK', telemetry?.frames_ok, 'text-emerald-400'],
+                      ['Frame bị hủy', telemetry?.frames_drop, 'text-red-400'],
+                      ['Chunk trễ bị bỏ', telemetry?.late_chunk_drop, telemetry?.late_chunk_drop > 0 ? 'text-yellow-300' : 'text-zinc-50'],
+                      ['Chunk đã nhận', telemetry?.chunks, 'text-zinc-50'],
+                      ['Ảnh bỏ ở UART (TX đầy)', telemetry?.uart_drop, telemetry?.uart_drop > 0 ? 'text-yellow-300' : 'text-zinc-50'],
+                    ].map(([label, v, cls]) => (
+                      <MdxStatCard key={label} size="sm" title={label} value={v} valueClass={cls} />
+                    ))}
+                  </div>
                   {/* Đo đạc ổn định Root (FW ≥ 2026-10-01a): cửa sổ = 1 chu kỳ telemetry. Firmware cũ không gửi → — */}
                   <div className="grid grid-cols-2 gap-1.5">
                     {[
@@ -1649,12 +2115,8 @@
                       ['DEFAULT khối lớn nhất', heapDefLargest != null ? Math.round(heapDefLargest / 1024) : null, 'KB', heapDefCls(heapDefLargest)],
                       ['UART hoãn', telemetry?.uart_defer, '', telemetry?.uart_defer > 0 ? 'text-yellow-300' : 'text-zinc-50'],
                     ].map(([label, v, unit, cls]) => (
-                      <div key={label} className="nested px-2.5 py-2">
-                        <div className="label">{label}</div>
-                        <div className={`mono text-[15px] font-semibold ${v != null ? cls : 'text-zinc-500'}`}>
-                          {v != null ? v : '—'}{v != null && unit ? <span className="text-[11px] text-zinc-500"> {unit}</span> : null}
-                        </div>
-                      </div>
+                      <MdxStatCard key={label} size="sm" title={label} valueClass={v != null ? cls : 'text-zinc-500'}
+                                   value={<>{v != null ? v : '—'}{v != null && unit ? <span className="text-[11px] text-zinc-500"> {unit}</span> : null}</>} />
                     ))}
                   </div>
                   <Row k="Self-healing (luồng) gần nhất" v={selfHealNew} cls="text-yellow-300" />
@@ -1704,15 +2166,27 @@
                 </div>
 
                 <div className="flex-1 min-h-0 px-3 pb-3">
-                  {frames.length === 0 ? (
+                  {frames.length === 0 && waitingIds.length === 0 ? (
                     <div className="h-full min-h-[50vh]">
-                      <SignalEmpty title="Đang chờ tín hiệu video" subtitle={emptySubtitle} />
+                      {socketConnected && (!telemetry || leafCount === 0) ? (
+                        // Radar: middleware đã kết nối nhưng chưa có Leaf nào (mount có điều kiện)
+                        <div className="relative w-full h-full grid-bg overflow-hidden rounded-md flex flex-col items-center justify-center gap-4 text-center px-3">
+                          <MdxRadar />
+                          <div>
+                            <div className="text-[15px] font-semibold text-zinc-100">Đang chờ Leaf vào mạng mesh…</div>
+                            <div className="mt-1 text-[12px] text-zinc-400 max-w-md">{emptySubtitle}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <SignalEmpty title="Đang chờ tín hiệu video" subtitle={emptySubtitle} />
+                      )}
                     </div>
-                  ) : viewMode === 'grid' ? (
+                  ) : viewMode === 'grid' || frames.length === 0 ? (
                     <div className={`h-full grid ${gridCols} ${gridRows} gap-2 auto-rows-[minmax(240px,1fr)] lg:auto-rows-auto`}>
                       {frames.map(([id, f]) => (
                         <FrameTile key={id} nodeId={id} f={f} latMs={latOf(id)} info={nodeById[id]} order={droneOrder} big onClick={() => { setFocusId(id); setViewMode('focus'); }} />
                       ))}
+                      {waitingIds.map((id) => <MdxFrameSkeleton key={`wait-${id}`} nodeId={id} order={droneOrder} />)}
                     </div>
                   ) : (
                     <div className="h-full flex flex-col gap-2">
@@ -1737,6 +2211,8 @@
               </main>
             </div>
           )}
+
+          <MdxToastStack toasts={toasts} />
         </div>
       );
     }
