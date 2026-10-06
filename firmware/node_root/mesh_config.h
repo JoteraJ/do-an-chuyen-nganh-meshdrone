@@ -205,8 +205,8 @@
  * lấy từ heap: nếu heap Root lúc khởi động (log "[SYS] Heap ... Serial.begin")
  * xuống dưới ~80 KB thì giảm về 4096. send_image_frame() bỏ frame ảnh khi buffer
  * còn trống < cả khung ảnh (7 + 10 + JPEG + 2 byte) → đếm "uart_drop"; JPEG lớn hơn
- * UART_TX_BUFFER_SIZE − 19 vì vậy luôn bị bỏ (8192 → JPEG > 8173 B). */
-#define UART_TX_BUFFER_SIZE        8192
+ * UART_TX_BUFFER_SIZE − 19 vì vậy luôn bị bỏ (16384 → JPEG > 16365 B). */
+#define UART_TX_BUFFER_SIZE        16384
 
 /* ============================================================
  *  9. BEACON ROOT — Leaf tự học Root ID để dùng sendSingle()
@@ -237,7 +237,7 @@
  *  ap_rssi: RSSI từng station đang nối vào AP của node này (đo
  *  phía AP, esp_wifi_ap_get_sta_list), khóa = nodeId của station.
  * ============================================================ */
-#define FW_VERSION                "2026-10-01c"
+#define FW_VERSION                "2026-10-06a"
 #define NSTAT_PREFIX              "#NSTAT"   // '#' khong thuoc bang ma Base64 -> khong nham voi chunk
 #define NSTAT_INTERVAL_MS         2000
 #define AP_RSSI_MAX               6         // so station toi da doc tu AP moi node (ap_rssi / link_rssi)
