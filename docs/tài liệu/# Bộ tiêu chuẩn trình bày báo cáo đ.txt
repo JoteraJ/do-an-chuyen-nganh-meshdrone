@@ -1,0 +1,327 @@
+# Bộ tiêu chuẩn trình bày báo cáo đồ án chuyên ngành Điện tử – Viễn thông tại TDTU (kết hợp quy định TDTU và chuẩn IEEE)
+
+Hướng dẫn chính thức hiện hành của TDTU (Khoa Điện – Điện tử đăng lại) **quy định trích dẫn theo APA (tác giả – năm), không theo IEEE**. Hiện chưa tìm thấy template IEEE riêng nào của TDTU hay của Khoa. Vì vậy, khi viết báo cáo đồ án chuyên ngành, bạn nên giữ đúng khung hình thức của TDTU (khổ giấy, lề, font, bìa, thứ tự các trang) và chỉ chuyển sang trích dẫn IEEE dạng [1] khi giảng viên hướng dẫn (GVHD) đồng ý bằng văn bản hoặc email. Trong ngành điện – điện tử, IEEE là chuẩn trích dẫn thông dụng nhất, nhưng ở TDTU nó chưa phải quy định bắt buộc.
+
+## TL;DR
+
+– Phần hình thức theo TDTU: A4 đứng, Times New Roman 13, giãn dòng 1.5, lề trên 3.5 cm, dưới 3 cm, trái 3.5 cm, phải 2 cm, số trang ở giữa phía trên. Hình, bảng, công thức đánh số theo chương (Hình 3.1, Bảng 4.1, (2.1)). Tên bảng đặt trên bảng, tên hình đặt dưới hình. Tiểu mục tối đa 3 cấp. Trích dẫn chính thức là APA bản 6 trở lên.
+
+– Phần chuẩn kỹ thuật theo IEEE (khi GVHD cho phép): trích dẫn số trong ngoặc vuông theo thứ tự xuất hiện, đặt trước dấu câu. Định nghĩa từ viết tắt ở lần đầu dùng. Dùng đơn vị SI. Tóm tắt viết thành một đoạn, không chứa trích dẫn và công thức. Tài liệu tham khảo ghi theo IEEE Reference Guide, kể cả datasheet và chuẩn như IEEE Std 802.11s-2011.
+
+– Báo cáo đạt điểm cao khác báo cáo trung bình chủ yếu ở chất lượng khoa học và phần bàn luận kết quả, ít phụ thuộc vào hình thức. Riêng ở Khoa Điện – Điện tử có một số lỗi "chết người": sao chép trên 30% bị 0 điểm phản biện; thiếu phụ lục mã nguồn dạng text, bản in khác với file đã nộp kiểm tra đạo văn, hoặc sai mẫu hoàn toàn thì không được bảo vệ.
+
+## Key Findings
+
+**1. TDTU yêu cầu APA, không yêu cầu IEEE.** Mục 2.6.2 của "Hướng dẫn trình bày Khóa luận, Đồ án tốt nghiệp" (ban hành kèm Quyết định năm 2020, đăng trên trang Biểu mẫu của Khoa Điện – Điện tử) ghi rõ tài liệu tham khảo "được trích dẫn theo kiểu APA (American Psychological Association) sử dụng từ phiên bản thứ 6 trở đi". Trích dẫn trong bài đặt trong ngoặc đơn gồm tác giả và năm, ví dụ (Smith, 2010). File mẫu Word MauDATN_2021 của Khoa cũng hướng dẫn chọn style "APA" trong tab References của Word. Ở TDTU có một ngoại lệ đáng chú ý: template đồ án của Khoa Công nghệ thông tin dùng trích dẫn số trong ngoặc vuông, ví dụ [15, tr-315]. Như vậy, kiểu trích dẫn số đã có tiền lệ trong trường, nhưng không thuộc Khoa Điện – Điện tử.
+
+**2. TDTU không có template "TDTU theo định dạng IEEE" chính thức.** Trang Biểu mẫu của Khoa Điện – Điện tử chỉ có 3 mục: "Hướng dẫn trình bày Khóa luận tốt nghiệp – Đồ án tốt nghiệp", "Mẫu trình bày Đồ án tốt nghiệp – Đồ án tổng hợp" (MauDATN_2021) và "Sổ tay an toàn Phòng thí nghiệm". Không mục nào là template IEEE. Ở các trường khác, ngành điện – điện tử thường đã chuyển sang IEEE. Ví dụ, mẫu đồ án của Trường Điện – Điện tử, Đại học Bách khoa Hà Nội ghi "Áp dụng cách liệt kê theo quy định của IEEE", và quy định của Khoa CNTT, Đại học Mở Hà Nội yêu cầu tài liệu tham khảo "tuân theo định dạng của IEEE reference and citation style".
+
+**3. Bộ GD&ĐT không ban hành chuẩn định dạng chung cho khóa luận đại học.** Thông tư 08/2021/TT-BGDĐT (Quy chế đào tạo trình độ đại học, hiệu lực từ 03/5/2021) giao cho quy chế của từng cơ sở đào tạo quy định việc tổ chức đánh giá đồ án và khóa luận. Tuy chưa có chuẩn quốc gia, các trường Việt Nam đã hội tụ về một bộ thông số phổ biến: Times New Roman 13–14, giãn dòng 1.5, lề 3.5/3/3.5/2 cm. TDTU cũng dùng đúng bộ này.
+
+**4. Chuẩn quốc tế đều coi quy định của trường là ưu tiên số một.** ISO 7144:1986 (Presentation of theses and similar documents) ghi rằng cách trình bày và thư mục của luận văn "shall conform to the particular rules of the university to which it is submitted". ANSI/NISO Z39.18-2005 (R2010) quy định các thành phần, cách tổ chức và thiết kế của báo cáo khoa học – kỹ thuật (phần đầu, phần cuối, văn bản, hình và bảng). Mạch logic cốt lõi của chuẩn này là mục tiêu, phương pháp, kết quả.
+
+**5. Khoa Điện – Điện tử có quy tắc riêng, mạnh hơn hướng dẫn chung.** Các quy tắc này được nêu trong thông báo nộp đồ án tốt nghiệp ngành Kỹ thuật Điện tử, Viễn thông:
+– Toàn bộ code dạng text phải đặt trong phụ lục.
+– Slide tối đa 15 trang, kèm poster theo mẫu.
+– Báo cáo phải được nộp lên hệ thống kiểm tra đạo văn.
+– Sao chép trên 30% (tính cả trích dẫn toàn văn có ghi nguồn) bị 0 điểm phản biện.
+– Điểm của GVHD và giảng viên phản biện (GVPB) đều phải từ 5.00 trở lên mới được ra hội đồng.
+– Thời gian trình bày trước hội đồng tối đa 20 phút.
+
+## Details
+
+### (a) Cấu trúc bố cục chuẩn chi tiết
+
+Thứ tự dưới đây theo đúng mục 3 của hướng dẫn TDTU. Phần nội dung chính được điều chỉnh theo mạch IMRaD/kỹ thuật cho đồ án có cả phần cứng lẫn phần mềm.
+
+**Phần đầu (front matter), đánh số trang La Mã i, ii, iii...**
+
+– Trang bìa chính (Mẫu 1): TỔNG LIÊN ĐOÀN LAO ĐỘNG VIỆT NAM (cỡ 14); TRƯỜNG ĐẠI HỌC TÔN ĐỨC THẮNG (đậm, 14); KHOA ĐIỆN – ĐIỆN TỬ (đậm, 14); HỌ VÀ TÊN SINH VIÊN (đậm, 14); TÊN ĐỀ TÀI (đậm, 24); loại đồ án (đậm, 22); TÊN CHUYÊN NGÀNH (đậm, 22); THÀNH PHỐ HỒ CHÍ MINH, NĂM … (đậm, 14). Với đồ án chuyên ngành, thay "KHÓA LUẬN/ĐỒ ÁN TỐT NGHIỆP" bằng "ĐỒ ÁN CHUYÊN NGÀNH" như các báo cáo mẫu của Khoa vẫn làm.
+
+– Trang phụ bìa (Mẫu 2): giống bìa chính, thêm MSSV, cỡ tên đề tài 22, và dòng "Người hướng dẫn" kèm học hàm, học vị, họ tên (ví dụ TS. Nguyễn Văn A, đậm, cỡ 14).
+
+– Lời cảm ơn (Mẫu 3): tiêu đề đậm cỡ 16, ngắn gọn, có chữ ký tác giả.
+
+– Lời cam đoan (Mẫu 4-1 và 4-2): "Công trình được hoàn thành tại Trường Đại học Tôn Đức Thắng", cam kết tính trung thực, có đủ chữ ký.
+
+– Phiếu giao nhiệm vụ: hướng dẫn TDTU nêu đích danh Khoa Điện – Điện tử phải có phiếu này, với đủ chữ ký của GVHD và Trưởng bộ môn hoặc Lãnh đạo Khoa. Thông báo của Khoa yêu cầu đính kèm thêm Phiếu theo dõi tiến độ.
+
+– Tóm tắt/Abstract (Mẫu 5): 1–2 trang, viết bằng cả tiếng Việt và tiếng Anh. Nội dung gồm vấn đề nghiên cứu, hướng tiếp cận, cách giải quyết và kết quả chính.
+
+– Mục lục (Mẫu 6), Danh mục hình vẽ (Mẫu 7), Danh mục bảng biểu (Mẫu 8), Danh mục ký hiệu và chữ viết tắt (Mẫu 9, xếp theo ABC). Nên tạo tự động bằng Heading và Insert Caption của Word.
+
+**Phần nội dung chính, đánh số trang Ả Rập từ Chương 1.** Hướng dẫn TDTU gợi ý khung Mở đầu – Tổng quan – Cơ sở lý thuyết – Phương pháp – Kết quả – Kết luận. Khung này trùng với cấu trúc "problem-method-results-discussion" mà hướng dẫn viết luận văn của MIT mô tả. Với đề tài mạng WiFi Mesh dùng ESP32-CAM và painlessMesh, nên chia 6 chương như sau.
+
+| Chương | Nội dung bắt buộc | Gợi ý cho đề tài ESP32-CAM/painlessMesh |
+|---|---|---|
+| 1. Giới thiệu (Mở đầu) | Lý do chọn đề tài, mục tiêu đo được, đối tượng, phạm vi, phương pháp, ý nghĩa, bố cục báo cáo | Bài toán liên lạc giữa drone/robot khi không có hạ tầng AP; mục tiêu định lượng (số nút, số hop, độ trễ, tỷ lệ nhận gói, khung hình/giây của camera) |
+| 2. Tổng quan | Phân tích công trình trong và ngoài nước, chỉ ra khoảng trống mà đề tài giải quyết | So sánh IEEE 802.11s, ESP-WIFI-MESH, painlessMesh, ESP-NOW; các nghiên cứu đo hiệu năng painlessMesh |
+| 3. Cơ sở lý thuyết | Nền tảng lý thuyết và chuẩn kỹ thuật dùng trong đề tài | Kiến trúc mesh, định tuyến, cấu trúc cây của painlessMesh, đồng bộ thời gian, giới hạn băng thông khi truyền ảnh JPEG |
+| 4. Thiết kế và thi công hệ thống | Yêu cầu hệ thống, sơ đồ khối, phần cứng (sơ đồ nguyên lý, nguồn, anten), phần mềm (lưu đồ, máy trạng thái, định dạng gói tin), lý do chọn linh kiện | Sơ đồ khối nút drone/robot/gateway, bảng so sánh lựa chọn linh kiện, ngân sách công suất, lưu đồ firmware |
+| 5. Kết quả thực nghiệm và đánh giá | Kịch bản đo, thiết lập thí nghiệm, số liệu, đồ thị, so sánh với mục tiêu và với tài liệu, phân tích nguyên nhân sai lệch, giới hạn | Độ trễ một chiều theo số hop, tỷ lệ nhận gói (PDR) theo tốc độ gửi và kích thước gói, thời gian tự phục hồi khi một nút rời mạng, ảnh chụp hệ thống thật |
+| 6. Kết luận và hướng phát triển | Tóm tắt kết quả mới, đối chiếu với mục tiêu ở Chương 1, các yêu cầu đã và chưa đạt, hướng phát triển | Bảng "mục tiêu – kết quả – đạt/chưa đạt" |
+
+Riêng Chương 5, nên học theo cách công bố số liệu của các nghiên cứu đo đạc thực tế. Bài "Performance Evaluation of ESP8266 Mesh Networks" của Yoppy, R. H. Arjadi, E. Setyaningsih, P. Wibowo và M. I. Sudrajat (J. Phys.: Conf. Ser., vol. 1230, 012023, 2019) đo được độ trễ một chiều của mạng painlessMesh 2 nút là 2.49 ms, và ghi nhận mạng nhiều nút hơn có độ trễ cao hơn ngay cả khi cùng số hop. Bài này cũng đo được thông lượng theo kích thước gói: với payload 10 byte, một nút nhận được tới 461 bản tin/giây; với payload 4400 byte chỉ còn 28 bản tin/giây; payload lớn hơn 4400 byte bắt đầu gây bản tin thiếu và lỗi. Bài "Characterization of Latency Sources in a MicroPython-Based ESP32 Edge–Cloud Sensor Network" (Sensors, vol. 26, no. 17, art. 5555, 2026) dùng testbed gồm tối đa năm nút cảm biến ESP32 và một gateway ESP32 nối qua ESP-NOW tới backend MQTT/Telegraf/InfluxDB. Bài tách độ trễ thành từng thành phần (nút đến gateway, xử lý tại gateway, gateway đến backend), báo cáo cả giá trị trung bình ± sai số lẫn phân vị p95, và định nghĩa PDR bằng công thức rõ ràng. Một báo cáo xuất sắc cần làm tương tự: định nghĩa chỉ số trước khi đo, lặp lại nhiều lần, ghi độ phân tán, và trình bày cả kết quả âm (trường hợp thất bại). Hướng dẫn viết luận văn của Columbia (LDEO) khuyên rõ: "Mention negative results as well as positive", và không diễn giải kết quả ngay trong mục kết quả mà để dành cho phần bàn luận.
+
+**Phần cuối (back matter):**
+
+– Danh mục công trình công bố của tác giả (nếu có).
+
+– Tài liệu tham khảo: chỉ liệt kê tài liệu thực sự được trích dẫn.
+
+– Phụ lục: mã nguồn dạng text (bắt buộc ở Khoa Điện – Điện tử), sơ đồ mạch đầy đủ, bảng số liệu thô, datasheet trích đoạn. Hướng dẫn TDTU quy định "Phụ lục không được dày hơn phần chính".
+
+**Nguyên tắc viết tóm tắt (abstract).** Các nguồn quốc tế thống nhất ở mấy điểm sau:
+– Purdue OWL: abstract phải nêu vì sao làm, làm thế nào và tìm được gì; dùng thì quá khứ; tự đứng độc lập, không tham chiếu tới thân bài. Nên viết thân bài trước rồi mới viết abstract.
+– MIT OCW: abstract dưới 500 từ, không chứa tài liệu tham khảo, hình hay bảng lớn; cấu trúc 3 đoạn thường dùng là vấn đề, phương pháp, kết quả.
+– IEEE: abstract của bài báo là một đoạn dài 150–250 từ, không chứa phương trình đánh số, trích dẫn đánh số hay chú thích chân trang.
+Nên ghi ít nhất 2–3 con số kết quả cụ thể trong tóm tắt.
+
+### (b) Bảng quy cách định dạng: TDTU so với IEEE
+
+| Hạng mục | TDTU (Hướng dẫn 2020, Khoa Điện – Điện tử áp dụng) | IEEE (Editorial Style Manual, Reference Guide) | Khuyến nghị cho báo cáo của bạn |
+|---|---|---|---|
+| Khổ giấy | A4 (210 × 297 mm), đứng, in một mặt | Bài báo 2 cột, khổ Letter/A4 theo template | Theo TDTU |
+| Font, cỡ chữ | Times New Roman Unicode 13, mật độ chữ bình thường | Times 10 pt (template bài báo) | Theo TDTU |
+| Giãn dòng | 1.5 lines | Đơn (single) | Theo TDTU |
+| Lề | Trên 3.5 cm, dưới 3 cm, trái 3.5 cm, phải 2 cm | Theo template hội nghị/tạp chí | Theo TDTU |
+| Đoạn văn | Dòng đầu thụt 1 tab | Thụt đầu dòng | Giống nhau |
+| Số trang | Giữa, phía trên đầu trang | Không áp dụng cho báo cáo | Theo TDTU |
+| Độ dài | 30–80 trang nội dung (mục 2.1), nhưng mục 3 ghi "tối thiểu 40 trang" | Không quy định | Hỏi GVHD; đồ án chuyên ngành thường ngắn hơn đồ án tốt nghiệp |
+| Đánh số đề mục | Số Ả Rập theo chương, tối đa 3 cấp tiểu mục (4.1.2.1); mỗi nhóm phải có ít nhất 2 tiểu mục | Số La Mã cho mục chính (I. INTRODUCTION), chữ hoa cho mục phụ (A.), 1) cho cấp ba | Theo TDTU |
+| Hình | "Hình 3.1" đánh số theo chương, tên đặt dưới hình | "Fig. 1." đánh số liên tục toàn bài, tên dưới hình, viết "Fig." kể cả ở đầu câu | Theo TDTU (tiếng Việt); dùng "Figure 3.1" nếu viết tiếng Anh |
+| Bảng | "Bảng 4.1", tên đặt trên bảng | "TABLE I" số La Mã, căn giữa phía trên, tên không có dấu chấm cuối | Theo TDTU |
+| Công thức | (2.1) đặt sát lề phải, đánh số theo chương | (1) liên tục; một số Transactions cho phép (1.1); trong câu viết "in (1)" | Theo TDTU; cách gọi tên lấy theo IEEE ("theo (2.1)") |
+| Viết tắt | Viết đầy đủ ở lần đầu kèm viết tắt trong ngoặc; nếu nhiều thì lập danh mục theo ABC | Định nghĩa ở lần đầu trong abstract và lần đầu trong thân bài | Kết hợp cả hai |
+| Đơn vị | Phải định nghĩa ký hiệu và đơn vị khi xuất hiện lần đầu | Khuyến khích SI; không trộn tên đầy đủ với ký hiệu ("Wb/m2" hoặc "webers per square meter") | Dùng SI, có khoảng trắng giữa số và đơn vị (2.4 GHz, 3.3 V) |
+| Trích dẫn trong bài | APA: (Tran, 2016); 3 tác giả trở lên ghi "và cộng sự" | Số trong ngoặc vuông [1], đặt trong dấu câu; "et al." khi từ 3 tên | APA theo quy định; IEEE nếu GVHD đồng ý |
+| Danh mục tài liệu | Chia theo ngôn ngữ (Việt/Anh), xếp ABC theo họ tác giả; văn bản quy phạm pháp luật để riêng | Đánh số theo thứ tự xuất hiện, số canh trái thành cột riêng | Không trộn hai kiểu trong cùng một báo cáo |
+| Bìa | Mẫu 1/Mẫu 2; bản tốt nghiệp đóng bìa simili xanh lá chữ nhũ vàng | Không áp dụng | Theo TDTU |
+| Lời cảm ơn | Bắt buộc, có chữ ký | "Acknowledgment" viết ngôi thứ ba; theo Mục 8.2.1.B.10 của IEEE PSPB Operations Manual, nội dung do AI tạo ra (văn bản, hình, ảnh, code) "shall be disclosed in the acknowledgments section" và phải nêu tên hệ thống AI đã dùng | Theo TDTU, bổ sung khai báo AI theo tinh thần IEEE |
+
+Một điểm vênh cần xử lý: hướng dẫn PDF ghi "Hình 3.1" (dấu chấm), còn file mẫu Word MauDATN_2021 lại dùng "Hình 1-1." (dấu gạch). Chọn một kiểu và dùng thống nhất cho toàn bộ báo cáo. Nên chọn dấu chấm, vì đó là văn bản quy định.
+
+### (c) Quy tắc trích dẫn IEEE kèm ví dụ
+
+**Quy tắc trong văn bản.** Các quy tắc sau lấy từ IEEE Reference Guide và Editorial Style Manual:
+– Số tham khảo đặt trên dòng, trong ngoặc vuông, nằm bên trong dấu câu. Ví dụ: "như đã trình bày trong [2], [4]–[7]".
+– Có thể dùng số như một danh từ ("theo [3]"), nhưng không viết "trong tài liệu tham khảo [1]".
+– Khi cần chỉ tới phần cụ thể của tài liệu, dùng dạng [3, Fig. 1], [3, pp. 5–10], [1, eq. (8)], [1, Sec. IV].
+– Bỏ "ibid." và "op. cit.", lặp lại số cũ.
+– Mỗi số chỉ ứng với một tài liệu; không gộp nhiều tài liệu vào một số.
+
+**Quy tắc trong danh mục:**
+– Tên riêng của tác giả viết tắt thành chữ cái đầu, đứng trước họ.
+– Liệt kê đến 6 tác giả; nhiều hơn 6 thì ghi tác giả đầu tiên kèm "et al."
+– Mọi mục đều kết thúc bằng dấu chấm, trừ mục kết thúc bằng URL.
+
+Với tên Việt Nam, IEEE viết tắt tên riêng và tên đệm và giữ họ ở cuối. Ví dụ, Nguyễn Văn An được ghi là "A. V. Nguyen" hoặc "V. A. Nguyen". Chọn một cách và dùng thống nhất.
+
+Các ví dụ dưới đây theo đúng khuôn của IEEE Reference Guide. Những phần đặt trong ngoặc nhọn là thông tin bạn phải tự kiểm tra trên tài liệu gốc trước khi dùng.
+
+– **Sách:** [1] A. S. Tanenbaum and D. J. Wetherall, *Computer Networks*, 5th ed. Boston, MA, USA: Pearson, 2011.
+(Khuôn: J. K. Author, *Title of Book*, xth ed. City, Country: Abbrev. of Publisher, year.)
+
+– **Bài báo tạp chí:** [2] G. R. Hiertz, D. Denteneer, S. Max, R. Taori, J. Cardona, L. Berlemann, and B. Walke, "IEEE 802.11s: The WLAN mesh standard," *IEEE Wireless Commun.*, vol. 17, no. 1, pp. 104–111, Feb. 2010.
+(Khuôn: J. K. Author, "Name of paper," *Abbrev. Title of Periodical*, vol. x, no. x, pp. xxx–xxx, Abbrev. Month, year, doi: xxx.)
+
+– **Bài hội nghị:** [3] J. K. Author, "Title of paper," in *Proc. Abbrev. Name of Conf.*, City, Country, year, pp. xxx–xxx, doi: xxx.
+
+– **Chuẩn kỹ thuật (IEEE 802.11s):** [4] *IEEE Standard for Information Technology—Telecommunications and Information Exchange Between Systems—Local and Metropolitan Area Networks—Specific Requirements Part 11: Wireless LAN Medium Access Control (MAC) and Physical Layer (PHY) Specifications Amendment 10: Mesh Networking*, IEEE Std 802.11s-2011, 2011, doi: 10.1109/IEEESTD.2011.6018236.
+(Khuôn: *Title of Standard*, Standard number, Corporate author, location, date.) Lưu ý về nội dung: 802.11s là bản sửa đổi ban hành năm 2011 và đã được tích hợp vào IEEE 802.11-2012. Nếu bạn viết về mesh trong chuẩn hiện hành, nên trích thêm bản IEEE 802.11 hợp nhất mới nhất.
+
+– **Datasheet:** [5] Espressif Systems, "ESP32 Series Datasheet," ver. {x.x}, {tháng năm}. [Online]. Available: {URL chính thức của Espressif}
+(Khuôn thường dùng trong các hướng dẫn IEEE của thư viện đại học: Company, *Title of Datasheet*, Part number datasheet, date. Ví dụ: Texas Instruments, "LM358 dual operational amplifier," LM358 datasheet, Mar. 2013.) Với module ESP32-CAM, ghi nhà sản xuất module (Ai-Thinker) và ghi riêng chip ESP32 (Espressif), không gộp chung vào một mục.
+
+– **Thư viện phần mềm hoặc tài liệu trực tuyến (painlessMesh):** [6] painlessMesh. ({phiên bản hoặc năm}). Accessed: {Mon. DD, YYYY}. [Online]. Available: {URL kho mã chính thức}
+(Khuôn Software: *Title of Software*. (version or year), Publisher. Accessed: Date. [Online]. Available: URL)
+
+– **Website:** [7] Espressif Systems, "{Tên trang}," {Tên website}. Accessed: {Mon. DD, YYYY}. [Online]. Available: {URL}
+Bản IEEE Reference Guide 2018 đưa một khuôn website hơi khác: tác giả, "Page Title," Website Title, URL (accessed Date). Hai cách đều chấp nhận được, miễn là dùng thống nhất trong toàn báo cáo.
+
+– **Luận văn hoặc đồ án:** [8] J. K. Author, "Title of thesis," B.S. thesis, Dept. Elect. Electron. Eng., Ton Duc Thang Univ., Ho Chi Minh City, Vietnam, year.
+
+Nếu GVHD yêu cầu giữ APA theo quy định TDTU, bạn vẫn dùng được đúng các nguồn trên nhưng đổi sang khuôn APA của mục 2.6.2 trong hướng dẫn TDTU, xếp ABC và chia theo ngôn ngữ. Microsoft Word có sẵn cả style APA lẫn IEEE trong tab References, nên đổi từ kiểu này sang kiểu kia chỉ mất vài giây nếu bạn quản lý nguồn bằng Manage Sources, Zotero hoặc Mendeley ngay từ đầu.
+
+### (d) Quy tắc về hình, bảng, công thức
+
+**Hình:**
+– Đánh số theo chương và theo thứ tự xuất hiện (Hình 4.1, 4.2...). Tên hình đặt dưới hình, căn giữa, ngắn gọn, đọc hiểu được mà không cần đọc thân bài.
+– Mọi hình lấy từ nguồn khác phải ghi nguồn ngay dưới chú thích. Theo hướng dẫn TDTU, dùng tài liệu của người khác mà không trích dẫn thì đồ án "không được duyệt để bảo vệ".
+– Hình phải được nhắc tới trong thân bài trước hoặc ngay khi nó xuất hiện ("xem Hình 3.4"). IEEE còn yêu cầu lần nhắc đầu tiên của các hình phải theo đúng thứ tự số.
+– Hình có nhiều phần thì đánh dấu (a), (b) và mô tả từng phần trong chú thích theo thứ tự.
+– Cỡ chữ trong hình xấp xỉ cỡ chữ thân bài. Sơ đồ khối và lưu đồ nên vẽ lại dạng vector (draw.io, Visio) thay vì chụp màn hình.
+– Ảnh phần cứng thật phải rõ nét và có chú thích linh kiện.
+– Đồ thị phải có tên trục, đơn vị SI trong ngoặc, chú giải (legend), thanh sai số hoặc khoảng tin cậy nếu đo lặp nhiều lần.
+
+**Bảng:**
+– Tên bảng đặt trên bảng, đánh số theo chương.
+– Mọi ký hiệu, viết tắt và đơn vị trong bảng phải được định nghĩa.
+– Bảng ngắn đặt ngay sau đoạn nhắc tới nó lần đầu. Bảng dài có thể sang trang riêng nhưng phải tiếp ngay sau đoạn đó.
+– Hạn chế bảng xoay ngang; nếu bắt buộc phải xoay thì đầu bảng quay về lề trái.
+– Bảng thông số linh kiện và bảng so sánh giải pháp là hai loại bảng "ăn điểm" trong đồ án phần cứng.
+
+**Công thức:**
+– Đánh số theo chương, đặt trong ngoặc đơn sát lề phải. Cách trình bày (dòng đơn hay dòng kép) phải thống nhất.
+– Ký hiệu mới phải được giải thích kèm đơn vị ngay sau công thức có chứa nó. IEEE dùng mẫu "where list" để làm việc này: mỗi dòng một ký hiệu, chữ đầu viết thường, kết thúc bằng dấu chấm phẩy, dòng cuối kết thúc bằng dấu chấm.
+– Biến số viết nghiêng (*x*, *P*), còn tên hàm và đơn vị viết đứng (sin, log, Hz).
+– Công thức kết thúc câu thì có dấu chấm.
+– Khi nhắc trong câu thì viết "theo (2.1)". Chỉ viết "Phương trình (2.1)" khi nó đứng đầu câu.
+– Ví dụ cho đề tài: định nghĩa PDR = N_nhận / N_gửi × 100%, và độ trễ một chiều d = t_rx − t_tx. Hai định nghĩa này phải xuất hiện trước khi trình bày đồ thị kết quả.
+
+**Đơn vị SI và viết tắt:**
+– Viết 2.4 GHz, 5 V, 250 mA, 20 dBm, 115200 baud. Không viết "2.4Ghz" hay "5v".
+– Không trộn tên đơn vị viết đầy đủ với ký hiệu.
+– Theo IEEE SA Standards Style Manual, ký hiệu đơn vị SI không phải là chữ viết tắt, nên không đưa vào danh mục viết tắt.
+– Các viết tắt như MAC, PHY, HWMP, RSSI, PDR, OTA thì phải định nghĩa ở lần đầu và đưa vào danh mục.
+
+### (e) Checklist tự kiểm tra trước khi nộp
+
+**Hình thức:**
+– [ ] Đúng mẫu bìa chính và phụ bìa; tên đề tài khớp với phiếu giao nhiệm vụ.
+– [ ] Đủ lời cảm ơn, lời cam đoan có chữ ký, phiếu giao nhiệm vụ, phiếu theo dõi tiến độ.
+– [ ] Times New Roman 13, giãn dòng 1.5, lề 3.5/3/3.5/2 cm, số trang ở giữa phía trên; phần đầu đánh số La Mã.
+– [ ] Mục lục, danh mục hình, danh mục bảng được tạo tự động và đã cập nhật (Update Field) sau lần sửa cuối.
+– [ ] Không có tiểu mục lẻ (có 2.1.1 thì phải có 2.1.2); không vượt quá 3 cấp tiểu mục.
+– [ ] Kiểu đề mục cùng cấp thống nhất trong toàn bài.
+
+**Hình, bảng, công thức:**
+– [ ] Mọi hình và bảng đều có số, tên, được nhắc tới trong thân bài, và có nguồn nếu không phải do mình tạo ra.
+– [ ] Tên bảng ở trên, tên hình ở dưới; chỉ dùng một kiểu phân cách số (3.1 hoặc 3-1).
+– [ ] Mọi công thức đều được đánh số; mọi ký hiệu đều được giải thích và có đơn vị.
+– [ ] Đồ thị có tên trục, đơn vị, legend; dễ đọc khi in đen trắng.
+
+**Nội dung kỹ thuật:**
+– [ ] Mục tiêu ở Chương 1 là định lượng được và được đối chiếu lại ở Chương 6.
+– [ ] Có sơ đồ khối tổng thể, sơ đồ nguyên lý, lưu đồ firmware, định dạng gói tin.
+– [ ] Mỗi lựa chọn thiết kế (linh kiện, thư viện, giao thức) đều có lý do và có so sánh với phương án thay thế.
+– [ ] Kết quả có điều kiện đo rõ ràng (số nút, khoảng cách, vật cản, tốc độ gửi, kích thước gói, số lần lặp) và có độ phân tán.
+– [ ] Có phần bàn luận: giải thích nguyên nhân, so sánh với tài liệu, nêu giới hạn và trường hợp thất bại.
+
+**Trích dẫn và liêm chính học thuật:**
+– [ ] Một kiểu trích dẫn duy nhất (APA theo TDTU, hoặc IEEE nếu GVHD cho phép); mọi mục trong danh mục đều được trích trong bài và ngược lại.
+– [ ] Datasheet, chuẩn và thư viện mã nguồn mở đều được trích như tài liệu tham khảo.
+– [ ] Đã tự kiểm tra trùng lặp; tỷ lệ phải thấp hơn nhiều so với ngưỡng 30% của Khoa.
+– [ ] Có khai báo phần sử dụng công cụ AI, nếu có, theo Mục 8.2.1.B.10 của IEEE PSPB Operations Manual: nêu tên hệ thống AI và phần nội dung do AI tạo ra; nếu AI chỉ dùng để sửa câu chữ và ngữ pháp thì không bắt buộc nhưng vẫn nên khai báo ("disclosure… is recommended").
+
+**Nộp bài (theo thông báo của Khoa Điện – Điện tử):**
+– [ ] Toàn bộ code dạng text nằm trong phụ lục.
+– [ ] Bản in trùng khớp với file nộp lên hệ thống kiểm tra đạo văn.
+– [ ] Đặt tên file đúng quy ước, ví dụ DATN_HK_MSSV_Baocao_Hoten. Với đồ án chuyên ngành, làm theo thông báo của bộ môn.
+– [ ] Thư mục nộp gồm Readme, Word, PDF, Resource, Source.
+– [ ] Slide không quá 15 trang; poster đã được GVHD duyệt.
+
+### (f) Những lỗi thường gặp cần tránh
+
+**Lỗi bị loại hoặc 0 điểm (Khoa Điện – Điện tử):**
+– Sao chép trên 30%, kể cả trích nguyên văn có ghi nguồn.
+– Thiếu phiếu nhiệm vụ hoặc thiếu xác nhận của GVHD.
+– Bản in khác với file đã nộp kiểm tra đạo văn.
+– Không có phụ lục code, hoặc code dán dưới dạng ảnh chụp.
+– Sai mẫu hoàn toàn.
+– Dùng hình, bảng, công thức của người khác mà không trích dẫn.
+
+**Lỗi trừ điểm hình thức:**
+– Trộn APA với IEEE trong cùng một báo cáo.
+– Đánh số hình không theo chương, hoặc vừa dùng "Hình 3.1" vừa dùng "Hình 3-1".
+– Tên bảng đặt dưới bảng.
+– Tiểu mục lẻ.
+– Mục lục không được cập nhật.
+– Lạm dụng viết tắt, hoặc viết tắt mà không định nghĩa.
+– Viết đơn vị sai ("5v", "2,4Ghz").
+– Lỗi chính tả. Nghiên cứu của Haagsman và cộng sự (Assessment & Evaluation in Higher Education, vol. 46, no. 8, pp. 1269–1284, 2021) cho thấy riêng tiêu chí chính tả – ngữ pháp đã giải thích 24% phương sai điểm luận văn cử nhân (tiêu chí tiêu đề giải thích 23%).
+
+**Lỗi trừ điểm nội dung, cũng là nơi mất nhiều điểm nhất:**
+– Chương lý thuyết sao chép dài dòng từ datasheet nhưng không gắn với thiết kế của mình.
+– Thiếu lý do chọn linh kiện hoặc giải pháp.
+– Chỉ có ảnh chụp "hệ thống chạy được" mà không có số liệu đo.
+– Đo một lần duy nhất, không có điều kiện đo.
+– Phần kết quả chỉ mô tả mà không có bàn luận.
+– Kết luận chứa nội dung chưa từng được trình bày trong thân bài.
+– Báo cáo quá ít hình. Rubric senior design công bố tại hội nghị ASEE 2010 phải đặt riêng tiêu chí "Appropriate Use of Figures and Diagrams" vì sinh viên "have a tendency to write their reports with very little and sometimes no accompanying figures".
+
+### Tiêu chí chấm điểm (rubric): điều gì làm nên điểm cao
+
+– Rubric đồ án tốt nghiệp phổ biến ở Việt Nam thường dành khoảng 1,0/10 điểm cho phần hình thức: trình bày đúng quy định, bố cục mạch lạc, hình và bảng rõ đẹp, lỗi chính tả không đáng kể. Phần còn lại dành cho đặt vấn đề, tổng quan, phương pháp, kết quả và khả năng ứng dụng. Xếp loại phổ biến là 8,5–10 Giỏi, 7,0–8,4 Khá, 5,0–6,9 Trung bình.
+
+– Ở các học phần đồ án có thi công phần cứng, điểm báo cáo viết chỉ là một phần. Ví dụ, đề cương Đồ án 2 của Khoa Điện, Trường Đại học Sư phạm Kỹ thuật TP.HCM chia điểm thành nội dung báo cáo viết 30%, kết quả thi công 20%, trình bày và trả lời câu hỏi của hội đồng 50%.
+
+– Các rubric capstone quốc tế (ASEE) chấm riêng các tiêu chí: tóm tắt và kết luận có xuất phát từ thân bài hay không, cách tổ chức báo cáo, việc dùng đúng đơn vị kỹ thuật, và hiệu quả của ảnh, hình, bảng. Phần thiết kế được hỏi trực tiếp: "Have engineering judgments been identified, technically justified, and supported?"
+
+– Nghiên cứu "Examiners' use of rubric criteria for grading bachelor theses" của Haagsman và cộng sự (Assessment & Evaluation in Higher Education, vol. 46, no. 8, 2021) cho thấy: luận văn điểm khá được phân biệt chủ yếu bởi chất lượng khoa học và phần bàn luận; luận văn điểm xuất sắc được phân biệt chủ yếu bởi chất lượng khoa học. Kết luận thực tế: hình thức đúng chuẩn chỉ giúp bạn không bị trừ điểm, còn chất lượng thực nghiệm và bàn luận mới quyết định điểm cao.
+
+### Đặc điểm chung của các báo cáo được đánh giá cao
+
+Không tìm được toàn văn một báo cáo đạt giải ngành điện tử – viễn thông hay IoT có thể phân tích chi tiết. Trang NCKH sinh viên của Khoa Điện – Điện tử có liệt kê giải nhất VietFuture Awards 2025 và Huy chương Vàng giải thưởng thiết kế, chế tạo, ứng dụng 2025 cho đề tài "Hệ thống UAV hỗ trợ trinh sát biển", nhưng không công bố báo cáo. Phần dưới đây vì vậy được tổng hợp từ các mẫu chính thức (TDTU, HUST, PTIT), các nghiên cứu đo hiệu năng painlessMesh và ESP32, và các rubric. Cần xem đây là suy luận có cơ sở, không phải phân tích trực tiếp một báo cáo đạt giải.
+
+– **Bố cục:** theo mạch vấn đề, phương pháp, kết quả, bàn luận. Chương thiết kế và thi công chiếm tỷ trọng lớn nhất; chương lý thuyết chỉ giữ lại những gì được dùng ở các chương sau.
+
+– **Khi làm theo nhóm:** thể hiện rõ đóng góp của từng người. Mẫu đồ án của Khoa Viễn thông 1, Học viện Công nghệ Bưu chính Viễn thông (PTIT) bắt buộc có trang "Phân công công việc chi tiết", và quy định nội dung tối thiểu 70 trang với nhóm 2 sinh viên, 90 trang với nhóm 3 sinh viên.
+
+– **Hình vẽ:** sơ đồ tự vẽ dạng vector, nhất quán về màu và font; ảnh phần cứng thật có chú thích; đồ thị có sai số.
+
+– **Kết quả:** định nghĩa chỉ số trước khi đo, nêu điều kiện đo, đo lặp nhiều lần, so sánh với mục tiêu và với số liệu đã công bố (ví dụ mốc 2.49 ms cho mạng painlessMesh 2 nút), giải thích sai lệch, và nêu cả trường hợp thất bại.
+
+## Recommendations
+
+1. **Trong tuần này, hỏi GVHD một câu duy nhất qua email:** "Em dùng trích dẫn IEEE [1] thay APA được không ạ?" Lưu lại email trả lời. Nếu GVHD không đồng ý, dùng APA đúng mục 2.6.2 của hướng dẫn TDTU.
+
+2. **Tải file MauDATN_2021 từ trang Biểu mẫu của Khoa Điện – Điện tử và viết trực tiếp trên file đó.** File đã có sẵn style Heading và caption (ThesisFigure, ThesisTable). Không tự dựng template từ đầu, vì "sai mẫu hoàn toàn" là lý do bị loại.
+
+3. **Quản lý tài liệu bằng Zotero hoặc Word Manage Sources ngay từ đầu,** để đổi qua lại giữa APA và IEEE trong vài giây.
+
+4. **Viết theo thứ tự Chương 4, Chương 5, Chương 3, Chương 2, Chương 1, Chương 6, tóm tắt.** Đây là thứ tự mà Purdue OWL và nhiều hướng dẫn luận văn khuyến nghị (thân bài trước, abstract sau cùng).
+
+5. **Dành ít nhất 30% thời gian cho thực nghiệm có kịch bản đo.** Tối thiểu cần đo: độ trễ theo số hop, PDR theo tốc độ gửi và kích thước gói, thời gian tự phục hồi khi một nút rời mạng, thông lượng ảnh từ ESP32-CAM. Mỗi kịch bản lặp ít nhất vài chục lần, rồi báo cáo trung bình, độ lệch chuẩn hoặc p95.
+
+6. **Trước khi nộp:** chạy checklist ở mục (e), tự kiểm tra đạo văn, in thử một bản đen trắng để kiểm tra đồ thị, và nhờ một bạn khác ngành đọc phần tóm tắt.
+
+## Caveats
+
+– Hướng dẫn TDTU đang áp dụng được ban hành kèm một quyết định năm 2020 (số quyết định để trống trong file đăng trên trang Khoa). Văn bản này viết cho khóa luận và đồ án tốt nghiệp, không riêng cho đồ án chuyên ngành. Bộ môn có thể có quy định riêng cho đồ án chuyên ngành, vì vậy ưu tiên thông báo của bộ môn và GVHD.
+
+– Bản thân hướng dẫn TDTU có mâu thuẫn nội bộ: mục 2.1 ghi 30–80 trang, mục 3 ghi tối thiểu 40 trang. Ký hiệu hình cũng khác nhau giữa hướng dẫn PDF ("Hình 3.1") và file mẫu Word ("Hình 1-1").
+
+– Thông tin chi tiết về file mẫu MauDATN_2021 (style APA trong Word, kiểu caption) được xác minh qua bản đăng lại trên Studocu, không qua file gốc trên website Khoa, vì công cụ không tải được file .zip.
+
+– Thông báo nộp đồ án dẫn ở trên (ngưỡng 30%, slide 15 trang, 20 phút trình bày) là của học kỳ 2 năm học 2017–2018. Các ngưỡng này có thể đã thay đổi, cần đối chiếu với thông báo mới nhất.
+
+– IEEE có nhiều phiên bản hướng dẫn: Reference Guide bản 11.12.2018 và bản 11.29.2023; Editorial Style Manual for Authors cập nhật ngày 29/7/2024. Khuôn trích dẫn website và datasheet giữa các phiên bản và giữa hướng dẫn của các thư viện đại học có khác biệt nhỏ. Quan trọng nhất là dùng thống nhất một khuôn.
+
+– Ví dụ datasheet và painlessMesh ở mục (c) có trường đặt trong ngoặc nhọn, cần tự điền từ tài liệu gốc. Không sao chép nguyên khuôn khi chưa kiểm tra phiên bản, ngày phát hành và URL.
+
+– Bộ tiêu chí về báo cáo xuất sắc ở trên là tổng hợp suy luận từ mẫu chính thức, rubric và nghiên cứu, không phải phân tích trực tiếp một báo cáo đạt giải của TDTU.
+
+## Nguồn tham khảo đáng tin cậy và link template
+
+– Hướng dẫn trình bày Khóa luận, Đồ án tốt nghiệp TDTU (Khoa Điện – Điện tử): https://feee.tdtu.edu.vn/sites/feee/files/feee/Bieu-mau/Huong%20dan%20trinh%20bay%20khoa%20luan%20TN,%20do%20an%20TN.pdf
+
+– Trang Biểu mẫu Khoa Điện – Điện tử, có file mẫu MauDATN_2021: https://feee.tdtu.edu.vn/gioi-thieu/bieu-mau-0
+
+– Thông báo nộp và bảo vệ ĐATN ngành Kỹ thuật Điện tử, Viễn thông: https://feee.tdtu.edu.vn/sites/feee/files/feee/Th%C3%B4ng%20b%C3%A1o%20chung/Thong-bao-nop-DATN.pdf
+
+– Hướng dẫn trình bày luận văn thạc sĩ và luận án tiến sĩ TDTU (QĐ 2055/2020), dùng cùng thông số định dạng: https://grad.tdtu.edu.vn/sites/graduate/files/GRAD/2020_11_09_2055_H%C6%B0%E1%BB%9Bng%20d%E1%BA%ABn%20tr%C3%ACnh%20LVThS_LATS_%C4%91%C3%A3%20ban%20h%C3%A0nh.pdf
+
+– Thông tư 08/2021/TT-BGDĐT, Quy chế đào tạo trình độ đại học: https://thuvienphapluat.vn/van-ban/Giao-duc/Thong-tu-08-2021-TT-BGDDT-Quy-che-dao-tao-trinh-do-dai-hoc-470013.aspx
+
+– IEEE Reference Guide: https://journals.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/7/IEEE_Reference_Guide.pdf (bản 2018: https://journals.ieeeauthorcenter.ieee.org/wp-content/uploads/IEEE-Reference-Guide.pdf)
+
+– IEEE Editorial Style Manual for Authors (cập nhật 29/7/2024): https://journals.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/7/IEEE-Editorial-Style-Manual-for-Authors.pdf
+
+– IEEE SA Standards Style Manual (đơn vị, viết tắt, cách trích chuẩn): https://mentor.ieee.org/myproject/Public/mytools/draft/styleman.pdf
+
+– ANSI/NISO Z39.18-2005 (R2010), Scientific and Technical Reports: https://www.niso.org/publications/z39.18-2005-r2010
+
+– ISO 7144:1986, Presentation of theses and similar documents (bản xem trước): https://webstore.ansi.org/preview-pages/ISO/preview_ISO+7144-1986.pdf
+
+– Purdue OWL, Handbook on Report Formats (Writing in Engineering): https://owl.purdue.edu/owl/subject_specific_writing/writing_in_engineering/handbook_on_report_formats/report_sections.html
+
+– MIT, Format of the Thesis: https://stuff.mit.edu/afs/athena/course/21/21.guide/th-form.htm và MIT OCW, Thesis Abstract Preparation Guidelines: https://ocw.mit.edu/courses/21g-225-advanced-workshop-in-writing-for-science-and-engineering-els-spring-2016/pages/study-materials/thesis-abstract-preparation-guidelines
+
+– Rubric senior design (ASEE 2010): https://peer.asee.org/senior-design-a-simple-set-of-report-outlines-and-evaluation-rubrics.pdf và rubric chấm báo cáo capstone (ASEE): https://peer.asee.org/grading-the-capstone-written-design-reports-a-comparison-of-external-judges-and-faculty-scores.pdf
+
+– Nghiên cứu về cách giám khảo dùng rubric khi chấm luận văn cử nhân: https://doi.org/10.1080/02602938.2020.1864287
+
+– Mẫu hướng dẫn quyển đồ án tốt nghiệp, Khoa Viễn thông 1, PTIT: https://tel.ptit.edu.vn/wp-content/uploads/sites/24/2025/10/Mau-huong-dan-quyen-DA-TN.-doc.pdf
+
+– Tham khảo chuyên môn cho đề tài: Hiertz et al., "IEEE 802.11s: The WLAN mesh standard" (IEEE Wireless Commun., 2010); Carrano et al., "IEEE 802.11s Multihop MAC: A Tutorial" (IEEE Commun. Surveys Tuts., 2011); "Performance Evaluation of ESP8266 Mesh Networks" (painlessMesh); "Characterization of Latency Sources in a MicroPython-Based ESP32 Edge–Cloud Sensor Network" (Sensors, 2026, https://doi.org/10.3390/s26175555).

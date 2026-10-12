@@ -1,0 +1,156 @@
+% ================= CHƯƠNG 2 =================
+\chapter{CƠ SỞ LÝ THUYẾT}\label{chap:2}
+
+Chương này trình bày các cơ sở lý thuyết được sử dụng trong đề tài, gồm khái niệm và đặc điểm của mạng mesh không dây, các giao thức định tuyến cho mạng ad-hoc, giao thức ESP-WIFI-MESH và thư viện painlessMesh, hệ điều hành thời gian thực FreeRTOS, nền tảng phần cứng ESP32 và các chỉ số được dùng để đánh giá hiệu năng mạng.
+
+
+\section{Mạng mesh không dây}
+
+Mục này trình bày khái niệm, các đặc điểm cốt lõi của mạng mesh không dây và so sánh mô hình này với các mô hình mạng truyền thống.
+
+
+\subsection{Khái niệm và đặc điểm}
+
+Theo bài khảo sát kinh điển của \citet{akyildiz2005}, mạng mesh không dây (Wireless Mesh Network – WMN) gồm hai thành phần: mesh router, thường ít di chuyển và tạo thành xương sống của mạng, và mesh client, có thể di động. Các mesh router cung cấp khả năng định tuyến đa chặng, giúp mạng tự mở rộng vùng phủ mà không cần mỗi node nối trực tiếp tới hạ tầng trung tâm. Đây đúng là bản chất bài toán của đề tài: drone hay robot không cần nhìn thấy trực tiếp trạm gốc, chỉ cần tồn tại một chuỗi liên kết giữa các node láng giềng.
+
+Các đặc điểm cốt lõi của WMN được khai thác trong đề tài gồm:
+\begin{itemize}
+    \item Khả năng tự tổ chức và tự cấu hình.
+    \item Khả năng truyền đa chặng thông qua các node trung gian.
+    \item Khả năng tự phục hồi khi một liên kết bị mất.
+\end{itemize}
+
+Ngoài ra, WMN còn có khả năng tích hợp với các loại mạng khác; đây là điểm mở rộng chưa được xét trong phạm vi đề tài.
+
+
+\subsection{So sánh với các mô hình mạng khác}
+
+Trong mô hình bus, các thiết bị dùng chung một trục truyền dẫn vật lý, khi trục hỏng thì toàn mạng ngừng hoạt động. Mô hình này không áp dụng cho mạng mesh không dây vì không có trục chung, mỗi liên kết là độc lập giữa từng cặp node. Mô hình hình sao phụ thuộc hoàn toàn vào node trung tâm, đây chính là hạn chế mà đề tài hướng tới giải quyết. Trong mô hình mesh, mỗi node có thể có nhiều liên kết láng giềng; khi mật độ liên kết đủ cao, mạng vẫn giữ được kết nối toàn cục dù một node đơn lẻ bị lỗi, và đây là nền tảng của khái niệm tự phục hồi.
+
+Khi các drone xếp nối tiếp nhau thành một chuỗi, mạng thực chất là dạng đường thẳng (daisy-chain), một dạng suy biến của mạng mesh. Nếu drone ở giữa chuỗi bị mất nguồn, các drone phía ngoài không bị hỏng theo về mặt vật lý nhưng sẽ bị cô lập khỏi trạm nếu drone đó là cầu nối duy nhất. Ngược lại, khi mật độ node đủ dày, các drone phía ngoài có thể tìm đường vòng qua node khác. Mô hình cây (tree), một dạng suy biến khác của mesh, là mô hình mà ESP-WIFI-MESH và painlessMesh sử dụng, sẽ được trình bày ở mục 2.3.
+
+
+\section{Các giao thức định tuyến cho mạng ad-hoc}
+
+Định tuyến là chức năng cốt lõi của mạng mesh. Mục này trình bày cách phân loại các giao thức định tuyến cho mạng ad-hoc di động, giao thức B.A.T.M.A.N và hướng nghiên cứu dành riêng cho mạng gồm các thiết bị bay.
+
+
+\subsection{Phân loại giao thức định tuyến MANET}
+
+Các giao thức định tuyến cho mạng ad-hoc di động (Mobile Ad-hoc Network – MANET) thường được chia thành hai nhóm chính:
+\begin{itemize}
+    \item \textbf{Nhóm phản ứng (reactive hay on-demand):} chỉ tìm đường khi có dữ liệu cần gửi. Tiêu biểu là AODV, do Perkins và Belding-Royer phát triển và được chuẩn hóa thành RFC 3561 năm 2003 \citep{perkins2003aodv}. Giao thức này chỉ khởi tạo quá trình dò đường khi cần, nhờ đó tiết kiệm băng thông dành cho bản tin điều khiển.
+    \item \textbf{Nhóm chủ động (proactive):} liên tục cập nhật bảng định tuyến toàn mạng. Tiêu biểu là OLSR, được chuẩn hóa thành RFC 3626 năm 2003 \citep{clausen2003olsr}, sử dụng cơ chế Multipoint Relay để giảm số node phải phát tràn bản tin điều khiển; và DSDV \citep{perkins1994dsdv}, một trong những giao thức MANET sớm nhất, sử dụng số thứ tự để tránh vòng lặp định tuyến.
+\end{itemize}
+
+Các nghiên cứu mô phỏng thường cho thấy OLSR có thông lượng và độ trễ tốt hơn AODV khi số node tăng vì đường đi đã có sẵn, trong khi tỉ lệ chuyển gói thành công của AODV ít bị ảnh hưởng hơn khi tốc độ di chuyển của node tăng. Tuy nhiên cả hai giao thức đều được thiết kế cho tầng IP trên hệ điều hành như Linux và không có bản cài đặt sẵn cho vi điều khiển, do đó không được dùng trực tiếp trong đề tài.
+
+
+\subsection{Giao thức B.A.T.M.A.N}
+
+B.A.T.M.A.N hoạt động ở tầng 2 và biến mạng mesh thành một switch ảo. Điểm khác biệt chính so với OLSR và AODV là mỗi node không cần biết toàn bộ topology, chỉ cần biết láng giềng nào là chặng kế tiếp tốt nhất tới từng đích. Mỗi node phát định kỳ bản tin OGM (Originator Message); OGM đi qua đường tốt sẽ đến nhanh hơn và ít mất hơn, nên đường đó được chọn. Phiên bản IV dùng chỉ số TQ (Transmit Quality) để xử lý liên kết bất đối xứng, và thêm trường previous sender để loại bỏ OGM quay vòng. Phiên bản V tách chức năng đo chất lượng liên kết cục bộ sang bản tin ELP để giảm tải xử lý.
+
+Hạn chế đã biết của B.A.T.M.A.N là cơ chế đổi đường dựa trên ngưỡng, nên phản ứng chậm khi topology thay đổi nhanh. Giao thức được cài đặt dưới dạng module batman-adv trên nhân Linux \citep{openmesh}, cấu hình bằng công cụ batctl, nên phù hợp với máy tính nhúng chạy Linux hơn là vi điều khiển ESP32.
+
+
+\subsection{Mạng ad-hoc cho thiết bị bay}
+
+FANET (Flying Ad-hoc Network) là nhánh nghiên cứu dành riêng cho mạng gồm các thiết bị bay không người lái. So với MANET tổng quát, FANET có độ di động cao và kiểu di chuyển phụ thuộc nhiệm vụ bay. Các khảo sát về FANET phân loại giao thức định tuyến thành các nhóm dựa trên topology, dựa trên vị trí (dùng tọa độ GPS), phân cụm, lấy cảm hứng từ hành vi bầy đàn và chịu trễ (DTN). Định tuyến dựa trên vị trí thường cho tuổi thọ đường đi tốt hơn trong FANET, đây là hướng có thể mở rộng nếu tích hợp thêm module định vị. \cansua{Cần bổ sung trích dẫn cụ thể cho các khảo sát FANET.}
+
+
+\section{ESP-WIFI-MESH và thư viện painlessMesh}
+
+Trên nền tảng ESP32, có hai lựa chọn chính để xây dựng mạng mesh WiFi là giao thức ESP-WIFI-MESH của Espressif và thư viện mã nguồn mở painlessMesh. Mục này trình bày nguyên lý hoạt động và các giới hạn của từng lựa chọn.
+
+
+\subsection{ESP-WIFI-MESH}
+
+ESP-WIFI-MESH là giao thức mesh chính thức của Espressif \citep{espressif_mesh}. Giao thức tận dụng khả năng hoạt động đồng thời ở chế độ station và access point của chip: một node vừa kết nối lên node cha như một station, vừa nhận kết nối từ các node con như một access point. Cơ chế này tạo ra topology dạng cây nhiều lớp, tương ứng với các vai trò Root, Parent và Leaf trong đề tài. Theo tài liệu của Espressif, mạng có thể mở rộng tới quy mô lý thuyết khoảng 1000 node \citep{espressif_mesh_overview} và hoạt động đa chặng mà không cần router.
+
+Tài liệu ESP-IDF mô tả hai kịch bản tự phục hồi. Khi node Root hỏng, các node ở lớp thứ hai tiến hành bầu chọn Root mới dựa trên RSSI tới router. Khi một node cha trung gian hỏng, các node con thử kết nối lại, sau đó tự chọn node cha mới trong tầm phủ sóng; quá trình này có thể làm mạng tăng thêm một lớp, kéo theo số hop và độ trễ tăng. ESP-WIFI-MESH còn có cơ chế điều khiển luồng lên (receiving window) và hàng đợi có giới hạn để chống tràn bộ đệm.
+
+
+\subsection{Thư viện painlessMesh}
+
+painlessMesh là thư viện mã nguồn mở cho nền tảng Arduino, xây dựng mạng mesh tự tổ chức trên ESP8266 và ESP32 theo nguyên lý tương tự ESP-WIFI-MESH \citep{painlessmesh}. Mạng có dạng cây, không có vòng lặp; các node trao đổi bản tin dạng JSON qua kết nối TCP giữa từng cặp node cha – con. Ứng dụng gửi dữ liệu bằng sendSingle tới một node cụ thể hoặc sendBroadcast tới toàn mạng. Thư viện duy trì một đồng hồ chung toàn mạng, truy xuất bằng hàm getNodeTime với đơn vị micro giây, có độ chính xác đồng bộ cỡ vài mili giây và cuộn vòng sau khoảng 71 phút.
+
+painlessMesh có một số giới hạn quan trọng đối với bài toán truyền ảnh:
+\begin{itemize}
+    \item Mỗi bản tin bị giới hạn kích thước khoảng 1400 byte.
+    \item Bản tin broadcast được chuyển tiếp lần lượt qua từng cạnh TCP có xác nhận, nên một ảnh gửi broadcast bị nhân lên nhiều lần trên cùng một miền đụng độ.
+    \item Khi một node mất nguồn đột ngột, việc phát hiện mất kết nối phụ thuộc vào thời gian chờ NODE\_TIMEOUT, khoảng 10 giây.
+    \item Bản painlessMesh gốc có lỗi khiến node ngừng quét tìm mạng sau khi ngắt kết nối WiFi. Đề tài sử dụng bản fork Alteriom/painlessMesh \citep{alteriom} đã khắc phục nhóm lỗi này.
+\end{itemize}
+
+
+\section{Hệ điều hành thời gian thực FreeRTOS trên ESP32}
+
+\cansua{Mục này viết từ kiến thức chung, không tìm thấy trong tài liệu dự án hiện có; cần kiểm tra lại và bổ sung trích dẫn.} FreeRTOS là hệ điều hành thời gian thực mã nguồn mở, cung cấp cơ chế đa nhiệm theo tác vụ (task) có độ ưu tiên, bộ lập lịch chiếm quyền (preemptive), hàng đợi, semaphore và quản lý bộ nhớ heap. Trên ESP32, framework ESP-IDF và lõi Arduino đều được xây dựng trên FreeRTOS: ngăn xếp WiFi và TCP/IP chạy trong các tác vụ riêng của hệ thống, còn hàm loop() của chương trình Arduino chạy trong một tác vụ ứng dụng.
+
+Điều này ảnh hưởng trực tiếp tới thiết kế firmware của đề tài. painlessMesh cần hàm mesh.update() được gọi thường xuyên trong loop() để xử lý kết nối và bản tin. Nếu loop() bị chặn lâu, ví dụ khi ghi một lượng lớn dữ liệu ra UART ở chế độ chặn, mesh.update() bị gọi thưa và dữ liệu dồn lại trong các kết nối TCP, làm heap giảm dần. Hiện tượng Root quá tải trình bày ở Chương 4 là một ví dụ thực tế của vấn đề này. Bộ nhớ heap của ESP32 cũng là tài nguyên giới hạn, nên các vùng đệm lớn trong đề tài được cấp phát tĩnh và có cơ chế bảo vệ khi heap xuống thấp.
+
+
+\section{Nền tảng phần cứng}
+
+Hệ thống sử dụng hai loại board dựa trên vi điều khiển ESP32 \citep{espressif_esp32_datasheet}: board ESP32-CAM cho node Leaf và board ESP32 DevKitC cho node Root. Mục này trình bày các đặc điểm của từng loại board có liên quan trực tiếp tới thiết kế hệ thống.
+
+
+\subsection{Module ESP32-CAM và camera OV3660}
+
+ESP32-CAM là module tích hợp vi điều khiển ESP32, bộ nhớ PSRAM ngoài và khe cắm camera. Board dùng cho node Leaf trong đề tài là loại ESP32-CAM-MB có sẵn đế nạp USB dùng chip CH340, đi kèm camera OV3660 thay cho camera OV2640 nêu trong đề bài gốc. Khi bring-up, firmware xác nhận PSRAM khoảng 4 MB, đủ để chứa bộ đệm khung ảnh của camera. Board được cấu hình trong Arduino IDE là AI Thinker ESP32-CAM với bảng phân vùng Huge APP (3 MB No OTA/1 MB SPIFFS).
+
+
+\subsection{Board ESP32 DevKitC dùng cho node Root}
+
+Node Root dùng board ESP32-WROOM-32D DevKitC có chip chuyển đổi USB–UART CP2102, cho phép cắm thẳng vào máy tính để middleware đọc dữ liệu UART mà không cần mạch nạp rời. Board này không có PSRAM, chỉ còn khoảng 120 KB heap trống sau khi khởi tạo mesh. Đặc điểm này quyết định kích thước và số lượng vùng đệm ghép ảnh có thể cấp phát tại Root, như trình bày ở Chương 3.
+
+
+\section{Các chỉ số đánh giá hiệu năng mạng}
+
+Đề tài sử dụng các chỉ số sau để đánh giá hiệu năng mạng:
+\begin{itemize}
+    \item \textbf{Thông lượng:} lượng dữ liệu ảnh nhận được thành công tại Root trong một đơn vị thời gian, tính bằng KB/s.
+    \item \textbf{Số khung trên giây (FPS):} số ảnh được ghép hoàn chỉnh mỗi giây, tính tổng cho toàn mạng và cho từng Leaf.
+    \item \textbf{Tỉ lệ hủy khung:} tỉ lệ khung không ghép được do thiếu chunk hoặc hết thời gian chờ.
+    \item \textbf{Độ trễ:} khoảng thời gian từ lúc Leaf chụp ảnh đến lúc Root ghép xong ảnh, đo dựa trên đồng hồ chung của mạng mesh.
+    \item \textbf{Thời gian tự phục hồi:} khoảng thời gian từ lúc một node mất kết nối đến lúc dữ liệu từ node đó tới Root trở lại.
+\end{itemize}
+
+Các chỉ số trên được xác định theo các công thức từ \eqref{eq:2.1} đến \eqref{eq:2.5}. Thông lượng và số khung trên giây được tính trên một khoảng thời gian quan sát:
+\begin{equation}\label{eq:2.1}
+T = \frac{B}{\Delta t},
+\end{equation}
+\begin{equation}\label{eq:2.2}
+\mathrm{FPS} = \frac{N_{\text{ok}}}{\Delta t},
+\end{equation}
+trong đó:\\
+$T$ là thông lượng (KB/s);\\
+$B$ là tổng dung lượng ảnh của các khung được ghép thành công tại Root trong khoảng quan sát (KB);\\
+$N_{\text{ok}}$ là số khung được ghép thành công trong khoảng quan sát;\\
+$\Delta t$ là độ dài khoảng thời gian quan sát (s).
+
+Tỉ lệ hủy khung được tính theo \eqref{eq:2.3}:
+\begin{equation}\label{eq:2.3}
+R_{\text{h}} = \frac{N_{\text{h}}}{N_{\text{ok}} + N_{\text{h}}} \times 100\,\%,
+\end{equation}
+trong đó $N_{\text{h}}$ là số khung bị hủy do thiếu chunk hoặc hết thời gian chờ.
+
+Độ trễ của một khung ảnh và thời gian tự phục hồi được tính theo \eqref{eq:2.4} và \eqref{eq:2.5}:
+\begin{equation}\label{eq:2.4}
+d = t_{\text{ghép}} - t_{\text{chụp}},
+\end{equation}
+\begin{equation}\label{eq:2.5}
+T_{\text{ph}} = t_{\text{nối}} - t_{\text{mất}},
+\end{equation}
+trong đó:\\
+$d$ là độ trễ của khung ảnh (ms);\\
+$t_{\text{chụp}}$ là thời điểm Leaf chụp ảnh và $t_{\text{ghép}}$ là thời điểm Root ghép xong ảnh, cả hai được lấy theo đồng hồ chung của mạng mesh (ms);\\
+$T_{\text{ph}}$ là thời gian tự phục hồi (ms);\\
+$t_{\text{mất}}$ là thời điểm Root nhận chunk cuối cùng của node trước khi mất kết nối và $t_{\text{nối}}$ là thời điểm Root nhận lại chunk đầu tiên từ node đó (ms).
+
+Trên kênh vô tuyến dùng chung, các trạm truy cập theo cơ chế CSMA/CA. Theo mô hình phân tích của \citet{bianchi2000}, trong mạng 802.11 bão hòa, xác suất đụng độ phụ thuộc vào cửa sổ tranh chấp và số trạm chứ không phụ thuộc độ dài gói. Vì vậy giảm kích thước chunk không làm giảm đụng độ mà còn tăng số khung và phần mào đầu; đây là lý do đề tài giữ kích thước chunk 1024 byte thay vì giảm xuống.
+
+
+\section{Kết luận chương}
+
+Chương 2 đã trình bày các cơ sở lý thuyết của đề tài. Mạng mesh không dây cho phép các node tự tổ chức, truyền đa chặng và tự phục hồi khi mất liên kết, phù hợp với bài toán kết nối drone và robot không có hạ tầng cố định. Trong các giải pháp được xem xét, các giao thức như AODV, OLSR hay B.A.T.M.A.N được thiết kế cho hệ điều hành Linux, trong khi ESP-WIFI-MESH và painlessMesh chạy trực tiếp trên ESP32; đề tài lựa chọn painlessMesh và lưu ý các giới hạn của thư viện này về kích thước bản tin, cơ chế broadcast và thời gian phát hiện mất kết nối. Các đặc điểm của FreeRTOS, của board ESP32-CAM và ESP32 DevKitC cùng các chỉ số đánh giá được định nghĩa trong chương này là cơ sở cho thiết kế hệ thống ở Chương 3.

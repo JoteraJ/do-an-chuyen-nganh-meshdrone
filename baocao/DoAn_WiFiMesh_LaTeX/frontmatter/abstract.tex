@@ -1,0 +1,13 @@
+% ================= ABSTRACT =================
+\clearpage
+\begin{center}
+{\fontsize{16}{20}\selectfont\bfseries \tendetaitienganh\\[0.4cm] ABSTRACT\par}
+\end{center}
+\vspace{0.3cm}
+This project presents the design and implementation of a WiFi mesh network built on ESP32 microcontrollers that connects mobile nodes (emulating drones/robots) and relays JPEG images in real time to a monitoring station without any router, Internet access or cellular network. The system has one ESP32 DevKitC Root node attached to a computer and three battery-powered ESP32-CAM OV3660 Leaf nodes, connected by the painlessMesh library as a self-organizing tree.
+
+Each JPEG frame captured at a Leaf is fragmented into chunks of up to 1024 bytes with a 16-byte header (node ID, frame ID, chunk index and capture timestamp) and sent directly to the Root, whose address is learned from a periodic beacon. The Root reassembles frames from several Leaves in parallel using four buffers with bitmaps and timeouts, then wraps them in CRC16-protected binary frames and sends them to the computer over a 921600 bps UART link. A Node.js middleware forwards the data via Socket.IO to a Web Dashboard showing images, FPS, throughput, drop rate, topology, RSSI, latency and self-healing time.
+
+Experiments show that a single Leaf reaches about 1.67 frames per second at a 600 ms capture interval with no dropped frames. With three battery-powered Leaves at a 300 ms interval, the aggregate frame rate grows almost linearly to about 10 frames per second, but the whole network stalls because the Root is overloaded; at a 600 ms interval the three-Leaf network runs continuously for several minutes at about 4.85 frames per second. Watchdogs, heap protection, non-blocking UART output and time-slotted transmission were also added. \cansua{Latency and throughput versus hop count: to be added after measurement.}
+
+\noindent\textbf{Keywords:} WiFi mesh, ESP32-CAM, painlessMesh, image fragmentation, self-healing, web dashboard.

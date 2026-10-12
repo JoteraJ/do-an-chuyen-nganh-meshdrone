@@ -1,0 +1,13 @@
+% ================= TÓM TẮT =================
+\clearpage
+\begin{center}
+{\fontsize{16}{20}\selectfont\bfseries \tendetai\\[0.4cm] TÓM TẮT\par}
+\end{center}
+\vspace{0.3cm}
+Đồ án trình bày quá trình thiết kế và thi công một mạng WiFi Mesh dùng vi điều khiển ESP32 để kết nối các node di động (mô phỏng drone/robot) và truyền ảnh JPEG theo thời gian thực về một trạm giám sát mà không cần router, Internet hay mạng di động. Hệ thống gồm một node Root ESP32 DevKitC nối máy tính và ba node Leaf ESP32-CAM OV3660 chạy pin 18650, dùng thư viện painlessMesh với mô hình cây tự tổ chức.
+
+Ảnh JPEG chụp tại Leaf được phân mảnh thành các chunk tối đa 1024 byte kèm header 16 byte (định danh node, khung, chỉ số mảnh và mốc thời gian chụp), truyền thẳng về Root bằng cơ chế học địa chỉ Root qua beacon. Root ghép ảnh song song cho nhiều Leaf bằng bốn vùng đệm có bitmap và timeout, sau đó đóng khung nhị phân có CRC16 và gửi lên máy tính qua UART 921600 bps. Middleware Node.js phát dữ liệu qua Socket.IO tới Web Dashboard hiển thị ảnh, FPS, thông lượng, tỉ lệ hủy khung, topology, RSSI, độ trễ và thời gian tự phục hồi.
+
+Kết quả thử nghiệm cho thấy với một Leaf, hệ thống đạt khoảng 1,67 khung/giây ở chu kỳ chụp 600 ms với tỉ lệ hủy khung 0 \%. Với ba Leaf chạy pin, ở chu kỳ 300 ms FPS tổng tăng gần tuyến tính lên khoảng 10 khung/giây nhưng mạng bị đứng do Root quá tải; khi giảm tải về chu kỳ 600 ms, mạng ba Leaf chạy liên tục nhiều phút với FPS tổng khoảng 4,85 khung/giây. Đồ án cũng bổ sung watchdog, bảo vệ heap, ghi UART không chặn và gửi lệch pha giữa các Leaf. \cansua{Kết quả đo độ trễ và thông lượng theo số hop: cần bổ sung sau khi đo.}
+
+\noindent\textbf{Từ khóa:} WiFi Mesh, ESP32-CAM, painlessMesh, phân mảnh ảnh, self-healing, Web Dashboard.

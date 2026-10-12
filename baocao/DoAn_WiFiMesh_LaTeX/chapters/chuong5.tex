@@ -1,0 +1,46 @@
+% ================= CHƯƠNG 5 =================
+\chapter{KẾT LUẬN VÀ HƯỚNG PHÁT TRIỂN}\label{chap:5}
+
+Chương này tổng kết các kết quả mà đề tài đã đạt được, nêu các hạn chế còn tồn tại và đề xuất hướng phát triển ngắn hạn và dài hạn cho hệ thống.
+
+
+\section{Kết luận}
+
+Mục này tổng hợp các kết quả đạt được của đề tài và các hạn chế cần tiếp tục khắc phục.
+
+\subsection{Kết quả đạt được}
+
+Đề tài đã xây dựng được một mạng WiFi Mesh gồm một node Root và ba node Leaf ESP32-CAM chạy pin độc lập, truyền được ảnh JPEG từ nhiều node về máy tính và hiển thị trên Web Dashboard theo thời gian thực. Chuỗi xử lý hoàn chỉnh đã được kiểm chứng trên phần cứng thật, bao gồm: chụp ảnh, phân mảnh, truyền qua mạng mesh, ghép ảnh tại Root, đóng khung UART có CRC, tách khung ở middleware và hiển thị trên trình duyệt.
+
+Qua thử nghiệm, đề tài xác định được hai nút thắt chính của hệ thống:
+\begin{itemize}
+    \item \textbf{Số vùng đệm ghép ảnh tại Root:} với một vùng đệm, tỉ lệ hủy khung lên tới khoảng 82 \% khi có hai Leaf; tỉ lệ này giảm xuống 0–5 \% khi tăng lên bốn vùng đệm.
+    \item \textbf{Tải xử lý của Root:} ở mức khoảng 10 khung/giây tổng, Root dành gần một nửa thời gian cho việc ghi UART, dẫn đến toàn mạng bị đứng; giảm tải về khoảng 5 khung/giây giúp ba Leaf hoạt động liên tục trong nhiều phút.
+\end{itemize}
+
+Bên cạnh đó, đề tài đã bổ sung các cơ chế nâng cao độ ổn định gồm watchdog, theo dõi node im lặng, bảo vệ heap, ghi UART không chặn và gửi lệch pha, đồng thời cung cấp khả năng đo độ trễ, topology và RSSI.
+
+\subsection{Hạn chế}
+
+Bên cạnh các kết quả đạt được, hệ thống vẫn còn một số hạn chế sau:
+\begin{itemize}
+    \item Chưa có cơ chế gửi lại, do đó chỉ cần mất một chunk thì toàn bộ khung ảnh bị hủy.
+    \item Thời gian tự phục hồi đo được còn có độ phân tán lớn.
+    \item Chưa có số liệu đo theo số hop, chưa đo dòng tiêu thụ và thời gian hoạt động bằng pin.
+    \item Mạng vẫn hoạt động sát ngưỡng, xuất hiện các đợt hủy khung ngắn và heap của Root có thời điểm giảm xuống khoảng 73 KB.
+    \item Thư viện painlessMesh sử dụng JSON qua TCP và chuyển tiếp theo từng cạnh nên tốn nhiều thời gian chiếm kênh, không được thiết kế cho nhiều luồng ảnh song song.
+\end{itemize}
+
+\section{Hướng phát triển}
+
+Trên cơ sở các hạn chế đã nêu, hướng phát triển của đề tài được chia thành hai giai đoạn: ngắn hạn và dài hạn.
+
+\subsection{Hướng phát triển ngắn hạn}
+
+Trong ngắn hạn, đề tài sẽ hoàn thành các phép đo theo số hop, độ trễ và khả năng tự phục hồi (self-healing) lặp lại, đo dòng tiêu thụ, đồng thời thử nghiệm đưa chu kỳ chụp về gần 300 ms khi đã áp dụng ghi UART không chặn và gửi lệch pha. Cơ chế NACK gộp có thể được bổ sung: sau mỗi khung, Root gửi một bản tin liệt kê các chunk còn thiếu để Leaf chỉ gửi lại các chunk đó, tránh hiện tượng bão bản tin xác nhận. Ngoài ra, việc gộp nhiều chunk vào một bản tin có kích thước gần giới hạn cũng có thể giảm thời gian chiếm kênh.
+
+\subsection{Hướng phát triển dài hạn}
+
+Về lâu dài, phiên bản sử dụng API ESP-WIFI-MESH chính thức trên ESP-IDF, hiện đã được xây dựng một phần, có thể được phát triển tiếp. Phiên bản này truyền dữ liệu nhị phân trực tiếp nên loại bỏ được bước mã hóa Base64 (giảm khoảng 33 \% dữ liệu); dữ liệu gửi lên Root tự đi đúng đường và có sẵn cơ chế chống tràn bộ đệm.
+
+ESP-NOW \citep{espressif_espnow} là một hướng khác để tăng tốc độ truyền ảnh. Tuy nhiên, giao thức này chỉ truyền một chặng nên cần tự xây dựng cơ chế chuyển tiếp để đáp ứng yêu cầu truyền qua mạng mesh. Ngoài ra, đề tài có thể mở rộng theo hướng nghiên cứu định tuyến theo vị trí khi tích hợp GPS hoặc UWB, và định tuyến có xét đến mức năng lượng còn lại của từng node.

@@ -1,0 +1,112 @@
+% ================= CHƯƠNG 1 =================
+\chapter{GIỚI THIỆU ĐỀ TÀI}\label{chap:1}
+
+Chương này trình bày bối cảnh và lý do lựa chọn đề tài, mục tiêu, nhiệm vụ, đối tượng và phạm vi nghiên cứu, phương pháp thực hiện cũng như bố cục chung của báo cáo. Nội dung của chương là cơ sở để các chương sau đi vào lý thuyết, thiết kế và kết quả thực nghiệm của hệ thống.
+
+
+\section{Đặt vấn đề}
+
+Trong nhiều hệ thống drone và robot hiện nay, các thiết bị kết nối với trạm điều khiển theo mô hình WiFi hình sao (star topology), tức là mọi thiết bị đều phải liên kết trực tiếp với một router hoặc điểm truy cập trung tâm. Khi thiết bị di chuyển ra xa vùng phủ của router, hoặc khi router gặp sự cố, toàn bộ liên kết của hệ thống bị gián đoạn. Giải pháp thay thế bằng mạng di động 4G đòi hỏi SIM và hạ tầng nhà mạng, vốn thường không có ở những nơi mà drone và robot cần làm việc nhất như vùng thiên tai, hầm mỏ hay khu vực rừng núi.
+
+Mạng mesh không dây giải quyết vấn đề này bằng cách cho phép các thiết bị tự kết nối với nhau và chuyển tiếp dữ liệu qua nhiều chặng (multi-hop). Mỗi node vừa là thiết bị đầu cuối vừa là bộ chuyển tiếp, nhờ đó vùng phủ của mạng được mở rộng theo số lượng node mà không cần hạ tầng cố định. Bản thân các vi điều khiển tạo ra một mạng LAN vô tuyến riêng, không cần SIM và không cần Internet. Thách thức kỹ thuật chính của bài toán nằm ở hai điểm:
+\begin{itemize}
+    \item Định tuyến dữ liệu qua nhiều chặng khi topology mạng thay đổi liên tục.
+    \item Truyền dữ liệu ảnh có kích thước lớn qua các liên kết vô tuyến có băng thông hạn chế.
+\end{itemize}
+
+Đề tài này xây dựng một mạng WiFi Mesh dùng vi điều khiển ESP32 giá thấp, trong đó các node mang camera đóng vai trò drone/robot thu thập hình ảnh, còn một node gốc nối với máy tính đóng vai trò trạm giám sát. Ảnh được phân mảnh, truyền qua mạng mesh, ghép lại tại node gốc và hiển thị trên một giao diện web cùng với các thông số chất lượng mạng.
+
+
+\section{Mục tiêu của đề tài}
+
+Mục tiêu của đề tài được xác định ở hai mức: mục tiêu tổng quát định hướng cho toàn bộ quá trình thực hiện và các mục tiêu cụ thể được dùng làm tiêu chí đánh giá kết quả.
+
+\subsection{Mục tiêu tổng quát}
+
+Mục tiêu tổng quát của đề tài là thiết kế, thi công và đánh giá một mạng WiFi Mesh đa node có khả năng truyền ảnh từ các node di động về trạm giám sát theo thời gian thực, đồng thời cung cấp công cụ đo lường để đánh giá chất lượng mạng.
+
+\subsection{Mục tiêu cụ thể}
+
+Vì đây là đồ án thuộc chuyên ngành Điện tử – Viễn thông, trọng tâm đánh giá là chất lượng mạng vô tuyến chứ không phải khả năng bay hay cơ khí của drone. Ba tiêu chí chính được đặt ra như sau:
+\begin{itemize}
+    \item \textbf{Thông lượng (throughput):} giá trị thông lượng và mức suy giảm của nó khi dữ liệu đi qua nhiều chặng.
+    \item \textbf{Độ trễ (latency):} khoảng thời gian từ lúc chụp ảnh đến lúc ảnh tới trạm giám sát.
+    \item \textbf{Thời gian tự phục hồi (self-healing):} khoảng thời gian mạng khôi phục kết nối khi một node trung gian mất nguồn hoặc ra khỏi vùng phủ sóng.
+\end{itemize}
+
+
+\section{Nhiệm vụ của đề tài}
+
+Để đạt được mục tiêu trên, đề tài được chia thành sáu nhiệm vụ như trình bày trong Bảng~\ref{tab:1.1}. Các nhiệm vụ này bao phủ từ phần nghiên cứu lý thuyết, thi công phần cứng, xây dựng phần mềm nhúng, phần mềm trên máy tính cho đến kịch bản thử nghiệm.
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Danh sách nhiệm vụ của đề tài}\label{tab:1.1}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|C{1.24cm}|L{13.16cm}|}
+\hline
+\textbf{STT} & \textbf{Nội dung nhiệm vụ} \\
+\hline
+1 & Nghiên cứu FreeRTOS và giao thức mạng mesh painlessMesh; thiết kế mô hình giao tiếp đa node cho hệ thống drone. \\
+\hline
+2 & Thiết kế và thi công phần cứng các node, hệ thống nguồn; đo dòng tiêu thụ và đánh giá độ ổn định khi truyền dữ liệu. \\
+\hline
+3 & Xây dựng cơ chế phân mảnh, truyền, nhận và ghép dữ liệu ảnh qua mạng mesh; xử lý mất gói và mất chunk. \\
+\hline
+4 & Xây dựng hệ thống thu nhận dữ liệu trên máy tính qua UART tốc độ cao và truyền dữ liệu thời gian thực đến giao diện giám sát bằng WebSocket. \\
+\hline
+5 & Phát triển Web Dashboard hiển thị luồng ảnh, topology mạng, RSSI, latency, throughput và FPS. \\
+\hline
+6 & Xây dựng kịch bản thử nghiệm theo số node, số hop và tải dữ liệu; đánh giá throughput, latency, packet loss, khả năng phục hồi và khả năng mở rộng của mạng. \\
+\hline
+\end{tabular}}
+\end{table}
+
+
+\section{Đối tượng và phạm vi nghiên cứu}
+
+Mục này xác định đối tượng mà đề tài tập trung nghiên cứu và giới hạn phạm vi thực hiện, làm cơ sở cho các kịch bản thử nghiệm được trình bày ở Chương 4.
+
+\subsection{Đối tượng nghiên cứu}
+
+Đối tượng nghiên cứu là mạng mesh WiFi tạo bởi các vi điều khiển ESP32 sử dụng thư viện painlessMesh, cùng cơ chế truyền ảnh JPEG qua mạng này. Phần cứng thử nghiệm gồm một node Root dùng board ESP32-WROOM-32D DevKitC và ba node Leaf dùng board ESP32-CAM với camera OV3660. Các node sử dụng anten PCB tích hợp sẵn trên board, không sử dụng anten rời.
+
+\subsection{Phạm vi nghiên cứu}
+
+Đề tài không chế tạo khung drone hay robot. Chuyển động của drone được mô phỏng bằng cách cầm tay hoặc đặt các node ở những vị trí cố định khác nhau, không sử dụng xe điều khiển từ xa.
+
+Ba node Leaf có cấu hình phần cứng giống nhau. Vai trò chuyển tiếp (Parent) không gắn với một phần cứng riêng mà do mạng tự hình thành tùy theo vị trí và cường độ tín hiệu tại thời điểm thử nghiệm. Với một Root và ba node di động, mạng có thể tạo chuỗi tối đa ba chặng để đo thông lượng và độ trễ theo số hop.
+
+
+\section{Phương pháp thực hiện}
+
+Đề tài được thực hiện theo phương pháp lặp, gồm các bước sau:
+\begin{enumerate}
+    \item Nghiên cứu cơ sở lý thuyết.
+    \item Xây dựng firmware và phần mềm.
+    \item Đưa từng board vào hoạt động (bring-up).
+    \item Thử nghiệm với số node tăng dần và thu thập số liệu bằng dashboard.
+    \item Chẩn đoán nguyên nhân khi xảy ra lỗi, sau đó khắc phục và đo lại.
+\end{enumerate}
+
+Về công cụ, firmware được phát triển trên Arduino IDE 2.3.10 với gói board esp32 của Espressif phiên bản 3.3.11 và thư viện Alteriom/painlessMesh 2.0.3. Phần mềm trên máy tính sử dụng Node.js, giao diện giám sát sử dụng React và Tailwind CSS. Mã nguồn được quản lý bằng Git trên GitHub.
+
+Trong quá trình thực hiện, đề tài từng thử nghiệm song song một phiên bản dùng API ESP-WIFI-MESH chính thức của Espressif trên nền ESP-IDF. Ngày 29/09/2026, đề tài chốt sử dụng painlessMesh làm phiên bản chính thức vì danh sách nhiệm vụ đã xác định rõ giao thức này; phiên bản ESP-IDF được giữ lại và đưa vào phần hướng phát triển. \cansua{Cần xác nhận với giảng viên hướng dẫn rằng danh sách nhiệm vụ này đã được duyệt.}
+
+
+\section{Bố cục báo cáo}
+
+Báo cáo được tổ chức thành năm chương như sau:
+\begin{itemize}
+    \item \textbf{Chương 1 – Giới thiệu đề tài:} trình bày đặt vấn đề, mục tiêu, nhiệm vụ, đối tượng và phạm vi nghiên cứu.
+    \item \textbf{Chương 2 – Cơ sở lý thuyết:} trình bày về mạng mesh không dây, các giao thức định tuyến, ESP-WIFI-MESH, thư viện painlessMesh, FreeRTOS và nền tảng phần cứng.
+    \item \textbf{Chương 3 – Thiết kế hệ thống:} trình bày thiết kế phần cứng, firmware trên mạng mesh và phần mềm trên máy tính gồm giao thức UART, middleware và Web Dashboard.
+    \item \textbf{Chương 4 – Kết quả thực nghiệm và đánh giá:} trình bày quá trình thử nghiệm, kết quả đo và đánh giá mức độ hoàn thành.
+    \item \textbf{Chương 5 – Kết luận và hướng phát triển:} tổng kết kết quả đạt được, các hạn chế và hướng phát triển của đề tài.
+\end{itemize}
+
+
+\section{Kết luận chương}
+
+Chương 1 đã xác định bài toán liên lạc cho các thiết bị drone và robot khi không có hạ tầng mạng cố định, từ đó đặt ra mục tiêu xây dựng một mạng WiFi Mesh dùng vi điều khiển ESP32 có khả năng truyền ảnh về trạm giám sát theo thời gian thực. Ba tiêu chí đánh giá chính gồm thông lượng, độ trễ và thời gian tự phục hồi đã được xác lập, cùng với nhiệm vụ, đối tượng, phạm vi và phương pháp thực hiện đề tài. Chương 2 tiếp theo trình bày cơ sở lý thuyết về mạng mesh không dây, các giao thức định tuyến và nền tảng phần cứng được sử dụng.

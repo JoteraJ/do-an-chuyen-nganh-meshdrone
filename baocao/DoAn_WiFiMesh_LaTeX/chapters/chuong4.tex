@@ -1,0 +1,166 @@
+% ================= CHƯƠNG 4 =================
+\chapter{KẾT QUẢ THỰC NGHIỆM VÀ ĐÁNH GIÁ}\label{chap:4}
+
+Chương này trình bày môi trường và phương pháp thử nghiệm, quá trình đưa phần cứng vào hoạt động, kết quả đo với một và nhiều node Leaf, kết quả đo thời gian tự phục hồi, các cải tiến ổn định đã thực hiện và đánh giá mức độ hoàn thành nhiệm vụ của đề tài.
+
+
+\section{Môi trường và phương pháp thử nghiệm}
+
+Các thử nghiệm được thực hiện với một Root nối máy tính chạy Windows và tối đa ba Leaf. Leaf được nạp firmware qua đế CH340 và chạy bằng pin khi đo. Số liệu được ghi bằng tab So sánh của dashboard và xuất ra các tệp CSV; mỗi đợt đo được thực hiện lần lượt với một, hai và ba Leaf để so sánh. Tải dữ liệu được thay đổi thông qua chu kỳ chụp của Leaf, gồm hai mức 300 ms và 600 ms.
+
+
+\section{Quá trình đưa phần cứng vào hoạt động}
+
+Trong quá trình bring-up, đề tài gặp và xử lý nhiều sự cố, tổng hợp ở Bảng~\ref{tab:4.1}. Đáng chú ý là lỗi của thư viện painlessMesh gốc khiến Leaf không tìm được Root, và hiện tượng tranh chấp sóng khi hai Leaf đặt sát nhau trên bàn. Sau khi xử lý, Leaf đầu tiên gửi ảnh liên tục với 1306 khung thành công và 6 khung bị hủy (khoảng 0,5 \%), không có khung UART sai CRC.
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Các sự cố khi bring-up và cách xử lý}\label{tab:4.1}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|L{4.14cm}|L{5.16cm}|L{4.80cm}|}
+\hline
+\textbf{Sự cố} & \textbf{Nguyên nhân} & \textbf{Cách xử lý} \\
+\hline
+Root treo ngay khi khởi động & Firmware bắt buộc PSRAM, board Root không có PSRAM & Cấp phát vùng đệm trong SRAM nội, bỏ khối kiểm tra chặn cứng \\
+\hline
+Middleware bỏ qua nhiều byte & Log văn bản của painlessMesh chèn vào luồng UART nhị phân & Hạ mức log xuống chỉ báo lỗi \\
+\hline
+Leaf gửi chunk thất bại 100 \% & Lỗi ngừng quét mạng của painlessMesh gốc & Chuyển sang fork Alteriom/\allowbreak{}painlessMesh \\
+\hline
+Leaf rớt kết nối liên tục & Root cố kết nối WiFi nhà, tranh chấp radio với AP mesh & Tắt kết nối station của Root \\
+\hline
+Một Leaf thất bại, heap tụt dần & Cáp/\allowbreak{}cổng USB không đủ dòng đỉnh & Đổi cáp và cổng USB, sau đó dùng nguồn pin \\
+\hline
+Hai Leaf đổi cha liên tục & Hai radio đặt cách nhau vài cm tranh chấp kênh & Tách các Leaf ra xa nhau \\
+\hline
+\end{tabular}}
+\end{table}
+
+
+\section{Kết quả với một node Leaf}
+
+Ở chu kỳ chụp 600 ms, một Leaf đạt 1,67 $\pm$ 0,40 khung/giây, thông lượng 7,8 KB/s, 8,4 chunk/s, tỉ lệ hủy khung 0 \%, kích thước khung trung bình khoảng 4,6 KB và heap trống tại Root ổn định ở 111–113 KB. Đây là mốc chuẩn cho một Leaf được dùng để so sánh với các trường hợp nhiều Leaf.
+
+
+\section{Kết quả với nhiều node Leaf}
+
+Khi tăng số Leaf gửi đồng thời, hệ thống bộc lộ các giới hạn về vùng đệm ghép ảnh và tải xử lý tại Root. Mục này trình bày các kết quả theo trình tự thử nghiệm cùng các nguyên nhân đã được xác định.
+
+
+\subsection{Hai Leaf và lỗi một vùng đệm ghép}
+
+Lần thử đầu tiên với hai Leaf gửi đồng thời ngày 17/09 cho kết quả 111 khung thành công và 496 khung bị hủy, tỉ lệ hủy khoảng 82 \%, so với 0,5 \% khi chỉ có một Leaf. Khi kiểm tra lại mã nguồn, nguyên nhân được xác định là Root chỉ còn một slot ghép ảnh, do số slot đã bị hạ từ 4 xuống 1 để vừa SRAM của board không có PSRAM. Khi chunk của Leaf thứ hai tới, Root phải hủy khung đang ghép dở của Leaf thứ nhất để lấy slot, và ngược lại, nên hầu như không khung nào ghép xong. Để khắc phục, firmware được sửa thành bốn slot 24 KB, kết hợp gửi sendSingle thay cho sendBroadcast.
+
+
+\subsection{Ba Leaf chạy pin và hiện tượng đứng mạng}
+
+Sau khi sửa, ở chu kỳ chụp 300 ms, FPS tổng tăng gần tuyến tính từ khoảng 3,5 lên 7 và 10 khung/giây tương ứng với một, hai và ba Leaf, tỉ lệ hủy chỉ 0–5 \%. Tuy nhiên với ba Leaf, toàn bộ mạng bị đứng sau 6–26 giây: FPS tổng về 0 trong hơn 38 giây trong khi số node Root báo vẫn là 3, heap Root giảm từ khoảng 90 KB xuống 57 KB và tiếp tục giảm. Hai Leaf thỉnh thoảng cũng gặp hiện tượng này. Ngoài ra còn có hiện tượng node ma: Root vẫn đếm một node nhưng node đó không gửi được ảnh.
+
+Nguyên nhân được xác định là Root quá tải. Ở mức ba Leaf với khoảng 3,3 khung/giây mỗi Leaf, Root phải đẩy khoảng 47 KB/s ảnh qua UART 921600 bps, trong khi giới hạn lý thuyết của liên kết này khoảng 92 KB/s. Root dành gần một nửa thời gian để ghi UART ở chế độ chặn, mesh.update() bị gọi thưa và dữ liệu dồn lại trong các kết nối TCP của painlessMesh.
+
+Khi giảm tải khoảng 40 \% bằng cách tăng chu kỳ chụp lên 600 ms, ba Leaf không còn đứng trong suốt thời gian đo, điều này xác nhận chẩn đoán trên. Cái giá phải trả là FPS tổng giảm từ khoảng 10 xuống khoảng 5.
+
+
+\subsection{Kết quả ở chu kỳ chụp 600 ms}
+
+Bảng~\ref{tab:4.2} tóm tắt kết quả ở chu kỳ 600 ms và Hình~\ref{fig:4.1} so sánh FPS tổng giữa hai mức tải. Với ba Leaf, mạng chạy liên tục khoảng 2 phút, FPS tổng 4,85 $\pm$ 0,96, mỗi Leaf khoảng 1,6 khung/giây, 31 chunk/s tại Root, heap Root chủ yếu ở mức 95–101 KB. Có một đợt tỉ lệ hủy tăng lên 7–36 \% trong khoảng 20 giây, heap thấp nhất 73 KB, sau đó mạng tự hồi phục.
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Kết quả thử nghiệm ở chu kỳ chụp 600 ms}\label{tab:4.2}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|C{1.92cm}|L{3.80cm}|L{8.39cm}|}
+\hline
+\textbf{Số Leaf} & \textbf{FPS tổng} & \textbf{Kết quả chính} \\
+\hline
+1 & 1,67 $\pm$ 0,40 & 7,8 KB/\allowbreak{}s; 8,4 chunk/\allowbreak{}s; hủy 0 \%; heap Root 111–113 KB \\
+\hline
+2 & $\approx$ 3,3 & Chạy ổn khoảng 4 phút; một đợt hủy ngắn \\
+\hline
+3 & 4,85 $\pm$ 0,96 ($\approx$ 5 ở phiên tối) & $\approx$ 1,6 khung/\allowbreak{}giây mỗi Leaf; 31 chunk/\allowbreak{}s; heap Root 87–108 KB; chạy liền 3 phút không đứng \\
+\hline
+\end{tabular}}
+\end{table}
+
+
+\hinh{chart_fps.png}{0.90}{So sánh FPS tổng theo số Leaf ở hai chu kỳ chụp (mức 300 ms là giá trị khi mạng còn chạy)}{fig:4.1}{}
+
+Trong phiên đo buổi tối ngày 29/09, diễn biến được ghi nhận như Bảng~\ref{tab:4.3}. Các Leaf rớt lần lượt chứ không đồng loạt, nên nguyên nhân không nằm ở Root; giả thuyết là do pin yếu vì các Leaf đã chạy pin từ sáng đến tối, và Leaf 1207369673 có lịch sử lỗi nguồn. \cansua{Giả thuyết pin yếu chưa được xác nhận: cần đo điện áp pin và kiểm tra log brownout.}
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Diễn biến phiên đo tối 29/09 (giờ UTC)}\label{tab:4.3}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|L{3.80cm}|L{2.43cm}|L{7.87cm}|}
+\hline
+\textbf{Thời gian} & \textbf{Số Leaf} & \textbf{Diễn biến} \\
+\hline
+14:07:59 – 14:10:59 & 3 & Chạy liền 3 phút, $\approx$ 5 FPS tổng, hủy gần 0 \%, heap Root 87–108 KB \\
+\hline
+$\approx$ 14:11 & 3 $\rightarrow$ 2 & Leaf 1207369673 rớt, không quay lại (dừng ở khung \#343) \\
+\hline
+14:12:01 – 14:16:15 & 2 & Chạy ổn khoảng 4 phút, $\approx$ 3,3 FPS tổng, một đợt hủy ngắn \\
+\hline
+14:16:17 – 14:16:39 & 2 (thực tế 1) & Leaf 1207449329 ngừng gửi nhưng vẫn được đếm; heap Root 104 $\rightarrow$ 82 KB \\
+\hline
+\end{tabular}}
+\end{table}
+
+
+\section{Đo thời gian tự phục hồi}
+
+Root đo thời gian tự phục hồi từ sự kiện mất kết nối đến lần thay đổi topology kế tiếp. Các giá trị ghi được ngày 16/09 là 885, 10461 và 32528 ms; ngày 29/09 là 1243, 3944, 7691, 8823 và 19919 ms. Độ phân tán quá lớn nên các giá trị này chưa thể được sử dụng làm kết quả.
+
+Nguyên nhân một phần nằm ở cách đo: trong thư viện, sự kiện thay đổi kết nối được gọi trước sự kiện mất kết nối, nên giá trị đo được là khoảng thời gian tới lần đổi topology bất kỳ, chưa chắc là lúc mạng thật sự nối lại. Ngoài ra, khi node mất nguồn đột ngột, việc phát hiện phụ thuộc thời gian chờ khoảng 10 giây của painlessMesh. Ngày 30/09, firmware Root bổ sung cách đo mới dựa trên luồng dữ liệu: thời gian phục hồi được tính từ chunk cuối cùng nhận được của một node đến khi node đó gửi chunk trở lại, mỗi sự kiện được gửi lên dashboard đúng một lần và có thể xuất CSV cùng giá trị theo cách đo cũ. \cansua{Cần đo self-healing ít nhất 5 lần theo quy trình đã thiết kế, tách riêng trường hợp đổi tuyến qua relay và trường hợp nối lại sau khi mất tín hiệu, ghi giá trị nhỏ nhất, lớn nhất và trung bình.}
+
+
+\section{Các cải tiến ổn định và kết quả ban đầu}
+
+Ngày 30/09, firmware được bổ sung các cơ chế ổn định trên nhánh feature/on-dinh, bao gồm:
+\begin{itemize}
+    \item Root không tự đếm chính nó và loại bỏ ID trùng trong danh sách node.
+    \item Watchdog tại Leaf.
+    \item Theo dõi node im lặng.
+    \item Bảo vệ heap tại Root.
+    \item Đo thời gian tự phục hồi theo luồng dữ liệu.
+    \item Ghi UART không chặn và gửi lệch pha.
+\end{itemize}
+
+Phiên bản firmware tương ứng là 2026-09-30c cho Leaf và 2026-09-30d cho Root. Trong tệp đo test15-newfirmware.csv, số khung ảnh bị bỏ ở UART tăng từ 4 lên 20 trong khi FPS khoảng 3, cho thấy nhánh ghi không chặn đang hoạt động mà không bỏ hết ảnh; tuy nhiên tệp CSV không ghi phiên bản firmware nên chưa xác nhận được. Firmware cũng đã có đầy đủ phần đo độ trễ, cây topology và RSSI. \cansua{Kết quả đo độ trễ và thông lượng theo 1, 2, 3 hop: không tìm thấy số liệu trong tài liệu hiện có, cần bổ sung sau khi bố trí chuỗi Root – Relay – Leaf và đo.}
+
+
+\section{Đánh giá mức độ hoàn thành}
+
+Bảng~\ref{tab:4.4} đối chiếu từng nhiệm vụ với tiến độ thực hiện tính đến ngày 30/09/2026. \cansua{Cập nhật bảng nếu có tiến độ mới sau ngày 30/09.}
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Đối chiếu nhiệm vụ với tiến độ}\label{tab:4.4}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|L{3.97cm}|L{6.01cm}|L{4.12cm}|}
+\hline
+\textbf{Nhiệm vụ} & \textbf{Đã thực hiện} & \textbf{Còn thiếu} \\
+\hline
+1. Nghiên cứu, mô hình đa node & Mô hình Root/\allowbreak{}Leaf, beacon và sendSingle; nghiên cứu painlessMesh & Hoàn thiện mục FreeRTOS \\
+\hline
+2. Phần cứng, nguồn & 3 bộ nguồn pin; số liệu ổn định qua CSV & Đo dòng tiêu thụ, thời gian chạy pin, tụ sát chân 5 V \\
+\hline
+3. Phân mảnh, ghép ảnh & Chunk 1024 B, bitmap, timeout, 4 slot, supersede; mô phỏng ghép 5/\allowbreak{}5 & Gửi lại chunk bị mất (NACK gộp) \\
+\hline
+4. UART, WebSocket & Giao thức khung có CRC16, 921600 bps, Socket.IO, kiểm thử 7/\allowbreak{}7, ghi UART không chặn & — \\
+\hline
+5. Web Dashboard & Luồng ảnh, FPS, thông lượng, tỉ lệ hủy, heap, self-healing, cây topology, RSSI, latency & Đo và kiểm chứng số liệu latency \\
+\hline
+6. Kịch bản thử nghiệm & Theo số node 1/\allowbreak{}2/\allowbreak{}3 và hai mức tải & Theo số hop, latency, self-healing lặp lại, mở rộng trên 3 node \\
+\hline
+\end{tabular}}
+\end{table}
+
+
+\section{Kết luận chương}
+
+Chương 4 đã trình bày các kết quả thực nghiệm của hệ thống. Với một Leaf ở chu kỳ chụp 600 ms, hệ thống đạt khoảng 1,67 khung/giây và không có khung bị hủy. Khi tăng số Leaf, hai nút thắt chính được xác định là số vùng đệm ghép ảnh tại Root và tải ghi UART của Root; sau khi tăng lên bốn vùng đệm và giảm tải về chu kỳ chụp 600 ms, mạng ba Leaf chạy liên tục trong khoảng 2 phút với FPS tổng khoảng 4,85 khung/giây. Thời gian tự phục hồi đo được còn có độ phân tán lớn, và các phép đo độ trễ theo số hop cũng như dòng tiêu thụ vẫn cần được bổ sung. Chương 5 tiếp theo tổng kết các kết quả đạt được, các hạn chế và hướng phát triển của đề tài.
