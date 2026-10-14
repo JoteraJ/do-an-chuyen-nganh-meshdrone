@@ -1,3 +1,6 @@
+% apalike-vn: bản sửa của apalike cho báo cáo tiếng Việt theo APA: nhãn
+% "và cộng sự", "&" trước tác giả cuối, tập(số), trang, n.d.-a/n.d.-b.
+%
 % BibTeX `apalike' bibliography style (version 0.99a, 8-Dec-10), adapted from
 % the `alpha' style, version 0.99a; for BibTeX version 0.99a.
 %
@@ -216,13 +219,10 @@ FUNCTION {format.names}
       nameptr #1 >
         { namesleft #1 >
             { ", " * t * }
-            { numnames #2 >
-                { "," * }
-                'skip$
-              if$
-              t "others" =
+            { "," *                                 % APA: dấu phẩy và "&"
+              t "others" =                            % trước tác giả cuối
                 { " và cộng sự" * }
-                { " and " * t * }
+                { " \& " * t * }
               if$
             }
           if$
@@ -390,7 +390,7 @@ FUNCTION {format.pages}
 }
 
 FUNCTION {format.vol.num.pages}
-{ volume field.or.null
+{ volume field.or.null emphasize                      % APA: số tập in nghiêng
   number empty$
     'skip$
     { "(" number * ")" * *
@@ -404,7 +404,7 @@ FUNCTION {format.vol.num.pages}
     'skip$
     { duplicate$ empty$
         { pop$ format.pages }
-        { ":" * pages n.dashify * }
+        { ", " * pages n.dashify * }                    % APA: 47(4), 445--487
       if$
     }
   if$
@@ -906,7 +906,10 @@ FUNCTION {calc.label}
   if$
   ", "                                                  % these three lines are
   *                                                     % for apalike, which
-  year field.or.null purify$ #-1 #4 substring$          % uses all four digits
+  year "n.d." =                                         % APA: giữ nguyên "n.d."
+    { "n.d." }
+    { year field.or.null purify$ #-1 #4 substring$ }    % uses all four digits
+  if$
   *
   'label :=
 }
@@ -1051,8 +1054,16 @@ FUNCTION {reverse.pass}
     { "a" 'extra.label := }
     'skip$
   if$
-  label extra.label * 'label :=
   extra.label 'next.extra :=
+  extra.label empty$                                    % APA: n.d.-a, n.d.-b
+    'skip$
+    { year "n.d." =
+        { "-" extra.label * 'extra.label := }
+        'skip$
+      if$
+    }
+  if$
+  label extra.label * 'label :=
 }
 
 EXECUTE {initialize.extra.label.stuff}

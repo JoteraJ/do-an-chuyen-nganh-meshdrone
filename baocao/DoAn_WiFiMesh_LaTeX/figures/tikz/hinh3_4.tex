@@ -1,0 +1,38 @@
+% Hình 3.4. Lưu đồ chụp và gửi ảnh tại Leaf (hàm capture_and_send)
+\begin{tikzpicture}[node distance=0.55cm, x=1cm, y=1cm]
+\node[batdau] (s) {Bắt đầu (gọi từ loop())};
+\node[quyetdinh, below=of s] (d0) {Đến chu kỳ chụp\\và khe gửi của Leaf?};
+\node[xuly, below=of d0, text width=6.6cm] (p1) {Chụp ảnh: fb = esp\_camera\_fb\_get()};
+\node[quyetdinh, below=of p1] (d1) {fb = NULL?};
+\node[quyetdinh, below=of d1] (d2) {Ảnh JPEG hợp lệ\\và không quá 24 KB?};
+\node[xuly, below=of d2, text width=6.6cm] (p2) {Lấy capture\_us = mesh.getNodeTime(), tính total\_chunks, i = 0};
+\node[xuly, below=of p2, text width=6.6cm] (p3) {Đóng header 16 byte cho chunk i, ghép payload, mã hóa Base64};
+\node[vaora, below=of p3, text width=5.4cm] (io) {Gửi chunk i tới Root (sendSingle)};
+\node[quyetdinh, below=of io] (d3) {i < total\_chunks − 1?};
+\node[xuly, below=of d3, text width=6.6cm] (p4) {Trả bộ đệm camera, tăng frame\_id};
+\node[batdau, below=of p4] (e) {Kết thúc};
+% Nhánh phụ bên phải
+\node[xuly, text width=2.9cm] (r1) at (d1 -| 6.0,0) {Ghi log lỗi chụp ảnh};
+\node[xuly, text width=2.9cm] (r2) at (d2 -| 6.0,0) {Trả bộ đệm camera, bỏ khung};
+\coordinate (bus) at (8.2,0);
+\draw[->] (s) -- (d0);
+\draw[->] (d0) -- node[pos=0, anchor=north west, xshift=1pt, tenre] {Đúng} (p1);
+\draw[->] (p1) -- (d1);
+\draw[->] (d1) -- node[pos=0, anchor=north west, xshift=1pt, tenre] {Sai} (d2);
+\draw[->] (d2) -- node[pos=0, anchor=north west, xshift=1pt, tenre] {Đúng} (p2);
+\draw[->] (p2) -- (p3);
+\draw[->] (p3) -- (io);
+\draw[->] (io) -- (d3);
+\draw[->] (d3) -- node[pos=0, anchor=north west, xshift=1pt, tenre] {Sai} (p4);
+\draw[->] (p4) -- (e);
+\draw[->] (d1.east) -- node[above, tenre] {Đúng} (r1.west);
+\draw[->] (d2.east) -- node[above, tenre] {Sai} (r2.west);
+\draw (d0.east) -- node[above, tenre] {Sai} (d0.east -| bus);
+\draw (r1.east) -- (r1.east -| bus);
+\draw (r2.east) -- (r2.east -| bus);
+\draw[->] (d0.east -| bus) |- (e.east);
+% Vòng lặp gửi chunk
+\node[xuly, text width=2.7cm] (inc) at ($(p3.west)!0.5!(d3.west) + (-2.05,0)$) {i = i + 1,\\gọi mesh.update()};
+\draw (d3.west) -| node[pos=0.25, above, tenre] {Đúng} (inc.south);
+\draw[->] (inc.north) |- (p3.west);
+\end{tikzpicture}

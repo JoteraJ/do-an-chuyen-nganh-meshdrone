@@ -1,109 +1,139 @@
-% ================= TÀI LIỆU THAM KHẢO (BibTeX, định dạng IEEE) =================
-% Kiểu trích dẫn: IEEE (IEEEtranN). Trích dẫn trong bài bằng \citep{khoa} -> [1]
-% hoặc \citet{khoa} -> Tác giả [1]. Đường dẫn ghi bằng \nolinkurl để không tạo liên kết.
+% ================= TÀI LIỆU THAM KHẢO =================
+% Kiểu trích dẫn: tác giả – năm (apalike-vn.bst). Trích dẫn trong bài bằng
+% \citep{khoa} -> (Tác giả, năm) hoặc \citet{khoa} -> Tác giả (năm).
+% Tài liệu trực tuyến không ghi năm dùng year = {n.d.}; đường dẫn ghi bằng
+% \nolinkurl trong trường note, kèm ngày truy cập.
+% Toàn bộ tài liệu hiện có là tài liệu tiếng nước ngoài.
 
 @article{akyildiz2005,
-  author  = {I. F. Akyildiz and X. Wang and W. Wang},
-  title   = {Wireless mesh networks: {A} survey},
-  journal = {Comput. Netw.},
+  author  = {Akyildiz, I. F. and Wang, X. and Wang, W.},
+  title   = {Wireless mesh networks: A survey},
+  journal = {Computer Networks},
   volume  = {47},
   number  = {4},
   pages   = {445--487},
-  month   = mar,
   year    = {2005},
-  note    = {doi: 10.1016/j.comnet.2004.12.001}
+  note    = {\nolinkurl{https://doi.org/10.1016/j.comnet.2004.12.001}}
 }
 
 @misc{alteriom,
-  author       = {{Alteriom}},
-  title        = {{painlessMesh} (fork)},
-  howpublished = {[Online]. Available: \nolinkurl{https://github.com/Alteriom/painlessMesh}},
-  note         = {Accessed: Sep. 2026}
+  author  = {{Alteriom}},
+  title   = {{painlessMesh} (bản fork trên {GitHub})},
+  year    = {n.d.},
+  note    = {Truy cập tháng 9/2026, từ \nolinkurl{https://github.com/Alteriom/painlessMesh}}
+}
+
+@article{bekmezci2013,
+  author  = {Bekmezci, {\.I}. and Sahingoz, O. K. and Temel, {\c{S}}.},
+  title   = {Flying ad-hoc networks ({FANETs}): A survey},
+  journal = {Ad Hoc Networks},
+  volume  = {11},
+  number  = {3},
+  pages   = {1254--1270},
+  year    = {2013},
+  note    = {\nolinkurl{https://doi.org/10.1016/j.adhoc.2012.12.004}}
 }
 
 @article{bianchi2000,
-  author  = {G. Bianchi},
+  author  = {Bianchi, G.},
   title   = {Performance analysis of the {IEEE} 802.11 distributed coordination function},
-  journal = {IEEE J. Sel. Areas Commun.},
+  journal = {IEEE Journal on Selected Areas in Communications},
   volume  = {18},
   number  = {3},
   pages   = {535--547},
-  month   = mar,
   year    = {2000},
-  note    = {doi: 10.1109/49.840210}
+  note    = {\nolinkurl{https://doi.org/10.1109/49.840210}}
 }
 
 @techreport{clausen2003olsr,
-  author      = {T. Clausen and P. Jacquet},
+  author      = {Clausen, T. and Jacquet, P.},
   title       = {Optimized Link State Routing Protocol ({OLSR})},
   institution = {Internet Engineering Task Force},
   type        = {RFC},
   number      = {3626},
-  month       = oct,
   year        = {2003},
-  note        = {doi: 10.17487/RFC3626}
+  note        = {\nolinkurl{https://doi.org/10.17487/RFC3626}}
 }
 
-@misc{espressif_mesh,
-  author       = {{Espressif Systems}},
-  title        = {{ESP-WIFI-MESH}, {ESP-IDF} Programming Guide},
-  howpublished = {[Online]. Available: \nolinkurl{https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/esp-wifi-mesh.html}},
-  note         = {Accessed: Sep. 2026}
+@misc{espressif_arduino_2017,
+  author  = {{Espressif Systems}},
+  title   = {Arduino Release v2.0.17 based on {ESP-IDF} v4.4.7},
+  year    = {2024},
+  note    = {Truy cập ngày 09/10/2026, từ \nolinkurl{https://github.com/espressif/arduino-esp32/releases}}
 }
 
-@misc{espressif_mesh_overview,
-  author       = {{Espressif Systems}},
-  title        = {{ESP-WIFI-MESH} overview},
-  howpublished = {[Online]. Available: \nolinkurl{https://www.espressif.com/en/products/sdks/esp-wifi-mesh/overview}},
-  note         = {Accessed: Oct. 7, 2026}
+@misc{espressif_esp32_datasheet,
+  author  = {{Espressif Systems}},
+  title   = {{ESP32} Series Datasheet, version 5.3},
+  year    = {n.d.},
+  note    = {Truy cập ngày 07/10/2026, từ \nolinkurl{https://documentation.espressif.com/esp32_datasheet_en.pdf}}
 }
 
 @misc{espressif_espnow,
-  author       = {{Espressif Systems}},
-  title        = {{ESP-NOW}, {ESP-IDF} Programming Guide},
-  howpublished = {[Online]. Available: \nolinkurl{https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_now.html}},
-  note         = {Accessed: Sep. 2026}
+  author  = {{Espressif Systems}},
+  title   = {{ESP-NOW}. {ESP-IDF} Programming Guide},
+  year    = {n.d.},
+  note    = {Truy cập tháng 9/2026, từ \nolinkurl{https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_now.html}}
+}
+
+@misc{espressif_freertos_idf,
+  author  = {{Espressif Systems}},
+  title   = {{FreeRTOS} ({IDF}). {ESP-IDF} Programming Guide},
+  year    = {n.d.},
+  note    = {Truy cập ngày 09/10/2026, từ \nolinkurl{https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/freertos_idf.html}}
+}
+
+@misc{espressif_mesh,
+  author  = {{Espressif Systems}},
+  title   = {{ESP-WIFI-MESH}. {ESP-IDF} Programming Guide},
+  year    = {n.d.},
+  note    = {Truy cập tháng 9/2026, từ \nolinkurl{https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/esp-wifi-mesh.html}}
+}
+
+@misc{espressif_mesh_overview,
+  author  = {{Espressif Systems}},
+  title   = {{ESP-WIFI-MESH} overview},
+  year    = {n.d.},
+  note    = {Truy cập ngày 07/10/2026, từ \nolinkurl{https://www.espressif.com/en/products/sdks/esp-wifi-mesh/overview}}
+}
+
+@misc{espressif_wdts,
+  author  = {{Espressif Systems}},
+  title   = {Watchdogs. {ESP-IDF} Programming Guide},
+  year    = {n.d.},
+  note    = {Truy cập ngày 09/10/2026, từ \nolinkurl{https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/system/wdts.html}}
 }
 
 @misc{openmesh,
-  author       = {{Open Mesh}},
-  title        = {{B.A.T.M.A.N.} advanced (batman-adv)},
-  howpublished = {[Online]. Available: \nolinkurl{https://www.open-mesh.org/projects/batman-adv}},
-  note         = {Accessed: Sep. 2026}
+  author  = {{Open Mesh}},
+  title   = {{B.A.T.M.A.N.} advanced (batman-adv)},
+  year    = {n.d.},
+  note    = {Truy cập tháng 9/2026, từ \nolinkurl{https://www.open-mesh.org/projects/batman-adv}}
 }
 
 @misc{painlessmesh,
-  author       = {{painlessMesh}},
-  title        = {{painlessMesh} library},
-  howpublished = {[Online]. Available: \nolinkurl{https://gitlab.com/painlessMesh/painlessMesh}},
-  note         = {Accessed: Sep. 2026}
+  author  = {{painlessMesh}},
+  title   = {{painlessMesh} library},
+  year    = {n.d.},
+  note    = {Truy cập tháng 9/2026, từ \nolinkurl{https://gitlab.com/painlessMesh/painlessMesh}}
+}
+
+@article{perkins1994dsdv,
+  author  = {Perkins, C. E. and Bhagwat, P.},
+  title   = {Highly dynamic destination-sequenced distance-vector routing ({DSDV}) for mobile computers},
+  journal = {ACM SIGCOMM Computer Communication Review},
+  volume  = {24},
+  number  = {4},
+  pages   = {234--244},
+  year    = {1994}
 }
 
 @techreport{perkins2003aodv,
-  author      = {C. Perkins and E. Belding-Royer and S. Das},
+  author      = {Perkins, C. and Belding-Royer, E. and Das, S.},
   title       = {Ad hoc On-Demand Distance Vector ({AODV}) Routing},
   institution = {Internet Engineering Task Force},
   type        = {RFC},
   number      = {3561},
-  month       = jul,
   year        = {2003},
-  note        = {doi: 10.17487/RFC3561}
-}
-
-@article{perkins1994dsdv,
-  author  = {C. E. Perkins and P. Bhagwat},
-  title   = {Highly dynamic destination-sequenced distance-vector routing ({DSDV}) for mobile computers},
-  journal = {ACM SIGCOMM Comput. Commun. Rev.},
-  volume  = {24},
-  number  = {4},
-  pages   = {234--244},
-  month   = oct,
-  year    = {1994}
-}
-
-@misc{espressif_esp32_datasheet,
-  author       = {{Espressif Systems}},
-  title        = {{ESP32} Series Datasheet},
-  howpublished = {ver. 5.3. [Online]. Available: \nolinkurl{https://documentation.espressif.com/esp32_datasheet_en.pdf}},
-  note         = {Accessed: Oct. 7, 2026}
+  note        = {\nolinkurl{https://doi.org/10.17487/RFC3561}}
 }

@@ -1,0 +1,27 @@
+% Hình 3.3. Cấu trúc gói chunk trên mạng mesh và khung UART
+\begin{tikzpicture}[o/.style={draw, rectangle, align=center, minimum height=1.25cm, inner sep=2pt}]
+% ---- Tại Leaf ----
+\node[nhan, anchor=west] (ta) at (-0.1,1.0) {Tại Leaf: gói chunk gửi qua mạng mesh};
+\node[o, minimum width=5.2cm, anchor=west] (anh) at (0,0) {Ảnh JPEG (tối đa 24 KB)};
+\node[o, minimum width=4.2cm, anchor=north west] (hd) at (0,-1.6) {Header\\16 byte};
+\node[o, minimum width=4.8cm, anchor=north west] (pl) at (hd.north east) {Payload\\tối đa 1024 byte};
+\node[o, minimum width=4.0cm, anchor=west] (b64) at ([xshift=1.7cm]pl.east) {Chuỗi Base64\\tối đa 1388 ký tự};
+\draw[->] (pl.east) -- node[above, tenre] {mã hóa} (b64.west);
+\draw[->] ([xshift=1.0cm]anh.south west) -- node[right, tenre] {chia thành tối đa 24 chunk, mỗi chunk gồm:} ([xshift=1.0cm]hd.north west);
+\node[tenre, anchor=north] at (b64.south) {sendSingle tới Root};
+% ---- Tại Root ----
+\node[nhan, anchor=west] (tb) at (-0.1,-4.35) {Tại Root: khung UART gửi lên máy tính};
+\node[o, minimum width=2.1cm, anchor=north west] (mg) at (0,-4.85) {MAGIC\\2 byte};
+\node[o, minimum width=1.9cm, anchor=north west] (ty) at (mg.north east) {TYPE\\1 byte};
+\node[o, minimum width=1.9cm, anchor=north west] (ln) at (ty.north east) {LEN\\4 byte};
+\node[o, minimum width=6.0cm, anchor=north west] (py) at (ln.north east) {PAYLOAD\\LEN byte};
+\node[o, minimum width=2.4cm, anchor=north west] (crc) at (py.north east) {CRC16\\2 byte};
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] ([yshift=-3pt]ty.south west) -- node[below=6pt, tenre] {phạm vi tính CRC16} ([yshift=-3pt]py.south east);
+\node[o, minimum width=2.4cm, anchor=north west] (n1) at (0.6,-7.95) {node\_id\\4 byte};
+\node[o, minimum width=2.4cm, anchor=north west] (n2) at (n1.north east) {frame\_id\\2 byte};
+\node[o, minimum width=2.4cm, anchor=north west] (n3) at (n2.north east) {jpeg\_len\\4 byte};
+\node[o, minimum width=6.4cm, anchor=north west] (n4) at (n3.north east) {Dữ liệu ảnh JPEG\\jpeg\_len byte};
+\draw[dashed] (py.south west) -- (n1.north west);
+\draw[dashed] (py.south east) -- (n4.north east);
+\node[tenre, anchor=north west] at ([yshift=-2pt]n1.south west) {Payload của khung ảnh (TYPE = 0x01): header phụ 10 byte và dữ liệu JPEG};
+\end{tikzpicture}

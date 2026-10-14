@@ -4,3 +4,11 @@ firmware/**/secrets.h
 **/esp_idf_migration/*/build/
 đăng kí nghiên cứu khoa học/
 data/raw/
+
+*.log
+*.aux
+*.out
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls

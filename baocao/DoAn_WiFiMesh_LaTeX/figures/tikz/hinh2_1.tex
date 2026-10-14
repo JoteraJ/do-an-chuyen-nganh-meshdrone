@@ -1,0 +1,20 @@
+% Hình 2.1. Phân bổ tác vụ trên hai lõi ESP32 trong lõi Arduino-ESP32
+\begin{tikzpicture}[
+  font=\normalsize,
+  khoi/.style={draw, rounded corners=2pt, align=center, text width=5.3cm, minimum height=1.0cm, inner sep=3pt},
+  vien/.style={draw, thick, minimum width=6.4cm, minimum height=8.2cm, anchor=north},
+  >=Stealth]
+\node[vien] (c0) at (0,0) {};
+\node[vien] (c1) at (7.6,0) {};
+\node[anchor=north, font=\bfseries] at ([yshift=-4pt]c0.north) {Core 0 (PRO\_CPU)};
+\node[anchor=north, font=\bfseries] at ([yshift=-4pt]c1.north) {Core 1 (APP\_CPU)};
+\node[khoi] (wifi) at (0,-1.6) {Tác vụ WiFi};
+\node[khoi] (lwip) at (0,-3.2) {Tác vụ TCP/IP (lwIP)};
+\node[khoi] (idle0) at (0,-7.0) {Tác vụ idle của core 0\\(ưu tiên 0)};
+\node[khoi, minimum height=3.7cm] (loop) at (7.6,-3.3) {loopTask (ưu tiên 1)\\[3pt] setup(), loop():\\ mesh.update()\\ xử lý ảnh\\ ghi UART (tại Root)};
+\node[khoi] (idle1) at (7.6,-7.0) {Tác vụ idle của core 1\\(ưu tiên 0)};
+\node[draw, dashed, minimum width=2.4cm, minimum height=0.9cm] (twdt) at (3.8,-9.3) {TWDT};
+\draw[<->] (lwip.east) -- node[above, align=center] {dữ liệu\\mesh} (lwip.east -| loop.west);
+\draw[->] (twdt.west) -| node[pos=0.25, below] {mặc định} (idle0.south);
+\draw[->, dashed] (twdt.east) -- node[below, align=center] {nếu gọi enableLoopWDT()} (11.1,-9.3) |- (loop.east);
+\end{tikzpicture}

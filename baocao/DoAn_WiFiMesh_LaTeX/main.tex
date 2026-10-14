@@ -1,3 +1,5 @@
+% !TeX program = xelatex
+% !TeX encoding = UTF-8
 % ============================================================
 %  ĐỒ ÁN CHUYÊN NGÀNH — KHOA ĐIỆN – ĐIỆN TỬ, ĐẠI HỌC TÔN ĐỨC THẮNG
 %  Template LaTeX chuyển từ mẫu MauDATN_2021
@@ -14,13 +16,15 @@
 \begin{document}
 
 % ---------------- PHẦN ĐẦU (đánh số i, ii, iii...) ----------------
+% Thứ tự theo hướng dẫn trình bày của Trường: bìa chính, bìa phụ, lời cảm ơn,
+% lời cam đoan, phiếu nhiệm vụ, lịch trình, tóm tắt, abstract, mục lục,
+% danh mục hình, danh mục bảng, danh mục chữ viết tắt.
 \pagenumbering{roman}
 \pagestyle{phandau}
 
 \input{frontmatter/biachinh}
 \input{frontmatter/biaphu}
 \input{frontmatter/loicamon}
-\input{frontmatter/xacnhan}
 \input{frontmatter/camdoan}
 \input{frontmatter/nhiemvu}
 \input{frontmatter/lichtrinh}
@@ -35,14 +39,14 @@
 % ---------------- NỘI DUNG CHÍNH (đánh số 1, 2, 3...) ----------------
 \batdaunoidung
 
-\input{chapters/chuong1}\textsf{}
+\input{chapters/chuong1}
 \input{chapters/chuong2}
 \input{chapters/chuong3}
 \input{chapters/chuong4}
 \input{chapters/chuong5}
 
 % ---------------- TÀI LIỆU THAM KHẢO ----------------
-\bibliographystyle{IEEEtranN}
+\bibliographystyle{apalike-vn}
 \bibliography{references}
 
 % ---------------- PHỤ LỤC ----------------

@@ -1,7 +1,7 @@
 % ================= CHƯƠNG 4 =================
 \chapter{KẾT QUẢ THỰC NGHIỆM VÀ ĐÁNH GIÁ}\label{chap:4}
 
-Chương này trình bày môi trường và phương pháp thử nghiệm, quá trình đưa phần cứng vào hoạt động, kết quả đo với một và nhiều node Leaf, kết quả đo thời gian tự phục hồi, các cải tiến ổn định đã thực hiện và đánh giá mức độ hoàn thành nhiệm vụ của đề tài.
+Chương này trình bày môi trường và phương pháp thử nghiệm, quá trình đưa phần cứng vào hoạt động, kết quả đo với một và nhiều node Leaf, kết quả đo thời gian tự phục hồi và các cải tiến ổn định đã thực hiện.
 
 
 \section{Môi trường và phương pháp thử nghiệm}
@@ -87,7 +87,7 @@ Bảng~\ref{tab:4.2} tóm tắt kết quả ở chu kỳ 600 ms và Hình~\ref{f
 
 \hinh{chart_fps.png}{0.90}{So sánh FPS tổng theo số Leaf ở hai chu kỳ chụp (mức 300 ms là giá trị khi mạng còn chạy)}{fig:4.1}{}
 
-Trong phiên đo buổi tối ngày 29/09, diễn biến được ghi nhận như Bảng~\ref{tab:4.3}. Các Leaf rớt lần lượt chứ không đồng loạt, nên nguyên nhân không nằm ở Root; giả thuyết là do pin yếu vì các Leaf đã chạy pin từ sáng đến tối, và Leaf 1207369673 có lịch sử lỗi nguồn. \cansua{Giả thuyết pin yếu chưa được xác nhận: cần đo điện áp pin và kiểm tra log brownout.}
+Trong phiên đo buổi tối ngày 29/09, diễn biến được ghi nhận như Bảng~\ref{tab:4.3}. Các Leaf rớt lần lượt chứ không đồng loạt, nên nguyên nhân không nằm ở Root.
 
 
 \begin{table}[!htbp]
@@ -130,35 +130,6 @@ Ngày 30/09, firmware được bổ sung các cơ chế ổn định trên nhán
 \end{itemize}
 
 Phiên bản firmware tương ứng là 2026-09-30c cho Leaf và 2026-09-30d cho Root. Trong tệp đo test15-newfirmware.csv, số khung ảnh bị bỏ ở UART tăng từ 4 lên 20 trong khi FPS khoảng 3, cho thấy nhánh ghi không chặn đang hoạt động mà không bỏ hết ảnh; tuy nhiên tệp CSV không ghi phiên bản firmware nên chưa xác nhận được. Firmware cũng đã có đầy đủ phần đo độ trễ, cây topology và RSSI. \cansua{Kết quả đo độ trễ và thông lượng theo 1, 2, 3 hop: không tìm thấy số liệu trong tài liệu hiện có, cần bổ sung sau khi bố trí chuỗi Root – Relay – Leaf và đo.}
-
-
-\section{Đánh giá mức độ hoàn thành}
-
-Bảng~\ref{tab:4.4} đối chiếu từng nhiệm vụ với tiến độ thực hiện tính đến ngày 30/09/2026. \cansua{Cập nhật bảng nếu có tiến độ mới sau ngày 30/09.}
-
-
-\begin{table}[!htbp]
-\centering
-\caption{Đối chiếu nhiệm vụ với tiến độ}\label{tab:4.4}
-{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
-\begin{tabular}{|L{3.97cm}|L{6.01cm}|L{4.12cm}|}
-\hline
-\textbf{Nhiệm vụ} & \textbf{Đã thực hiện} & \textbf{Còn thiếu} \\
-\hline
-1. Nghiên cứu, mô hình đa node & Mô hình Root/\allowbreak{}Leaf, beacon và sendSingle; nghiên cứu painlessMesh & Hoàn thiện mục FreeRTOS \\
-\hline
-2. Phần cứng, nguồn & 3 bộ nguồn pin; số liệu ổn định qua CSV & Đo dòng tiêu thụ, thời gian chạy pin, tụ sát chân 5 V \\
-\hline
-3. Phân mảnh, ghép ảnh & Chunk 1024 B, bitmap, timeout, 4 slot, supersede; mô phỏng ghép 5/\allowbreak{}5 & Gửi lại chunk bị mất (NACK gộp) \\
-\hline
-4. UART, WebSocket & Giao thức khung có CRC16, 921600 bps, Socket.IO, kiểm thử 7/\allowbreak{}7, ghi UART không chặn & — \\
-\hline
-5. Web Dashboard & Luồng ảnh, FPS, thông lượng, tỉ lệ hủy, heap, self-healing, cây topology, RSSI, latency & Đo và kiểm chứng số liệu latency \\
-\hline
-6. Kịch bản thử nghiệm & Theo số node 1/\allowbreak{}2/\allowbreak{}3 và hai mức tải & Theo số hop, latency, self-healing lặp lại, mở rộng trên 3 node \\
-\hline
-\end{tabular}}
-\end{table}
 
 
 \section{Kết luận chương}

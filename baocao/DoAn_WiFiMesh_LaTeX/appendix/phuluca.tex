@@ -2,7 +2,7 @@
 \chapter{MÃ NGUỒN VÀ TÀI NGUYÊN DỰ ÁN}\label{app:a}
 Toàn bộ mã nguồn của đề tài được lưu trên GitHub tại \url{https://github.com/JoteraJ/do-an-chuyen-nganh-meshdrone}. Thư mục thuattoan/ chứa firmware node Root (node\_root/), firmware node Leaf (node\_camera/), các tệp header dùng chung (shared/: chunk\_protocol.h, crc16.h, base64\_util.h), middleware Node.js kèm Web Dashboard (middleware/) và đặc tả giao thức UART (UART\_PROTOCOL.md). Thư mục esp\_idf\_migration/ chứa phiên bản thử nghiệm dùng ESP-WIFI-MESH trên ESP-IDF, đã dừng phát triển.
 
-Các tệp kiểm thử gồm mo\_phong\_reassembly.py (mô phỏng thuật toán ghép ảnh, đạt 5/5) và test\_protocol.js (kiểm thử bộ tách khung UART, đạt 7/7). Số liệu đo được lưu dưới dạng tệp CSV xuất từ dashboard. \cansua{Có thể bổ sung trích đoạn mã chính (receive\_and\_reassemble, capture\_and\_send) vào phụ lục nếu giảng viên yêu cầu.}
+Các tệp kiểm thử gồm mo\_phong\_reassembly.py (mô phỏng thuật toán ghép ảnh, đạt 5/5) và test\_protocol.js (kiểm thử bộ tách khung UART, đạt 7/7). Bộ tách khung được viết tách riêng khỏi phần đọc cổng serial và Socket.IO, nên có thể kiểm thử bằng phần mềm mà không cần board thật. Số liệu đo được lưu dưới dạng tệp CSV xuất từ tab So sánh của Web Dashboard.
 
 % Ví dụ chèn mã nguồn (bỏ dấu % để dùng, cần \usepackage{listings}):
 % \begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]

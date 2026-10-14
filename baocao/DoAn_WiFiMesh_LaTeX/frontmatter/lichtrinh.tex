@@ -1,4 +1,9 @@
 % ================= LỊCH TRÌNH LÀM ĐỒ ÁN =================
+% Khi có bản scan lịch trình có chữ ký của GVHD, lưu thành figures/lichtrinh.pdf;
+% trang scan sẽ tự thay cho bảng lịch trình bên dưới.
+\IfFileExists{figures/lichtrinh.pdf}{%
+  \includepdf[pages=-,pagecommand={\thispagestyle{phandau}}]{figures/lichtrinh.pdf}%
+}{%
 \clearpage
 {\fontsize{12}{14}\selectfont
 \noindent\begin{tabular}{@{}C{7.2cm}C{7.8cm}@{}}
@@ -31,7 +36,7 @@ Tên đề tài: \tendetaithuong
 \hline
 26/09 – 27/09/2026 & Firmware Root ghép 4 khung song song, cơ chế supersede, beacon \#ROOT; Leaf học Root và gửi sendSingle; viết lại Dashboard với tab so sánh 1/2/3 Leaf. & Thử nghiệm 3 Leaf chạy pin. & \\
 \hline
-28/09 – 29/09/2026 & Hàn nguồn pin cho 3 Leaf; thử nghiệm 3 Leaf (phát hiện đứng mạng, giảm tải chu kỳ 600 ms); chốt dùng painlessMesh; báo cáo tiến độ giữa kỳ. & Bổ sung latency, topology, RSSI và các cơ chế ổn định. & \\
+28/09 – 29/09/2026 & Hàn nguồn pin cho 3 Leaf; thử nghiệm 3 Leaf (phát hiện toàn mạng ngừng truyền dữ liệu, giảm tải chu kỳ 600 ms); chốt dùng painlessMesh; báo cáo tiến độ giữa kỳ. & Bổ sung latency, topology, RSSI và các cơ chế ổn định. & \\
 \hline
 30/09/2026 & Thêm mốc thời gian chụp vào header (16 byte), latency, cây topology, RSSI; watchdog Leaf, theo dõi node im lặng, bảo vệ heap, ghi UART không chặn, staggering. & Đo theo số hop, đo latency, đo dòng tiêu thụ, đo self-healing lặp lại. & \\
 \hline
@@ -48,3 +53,4 @@ Kiểm tra giữa kỳ & \multicolumn{2}{l|}{\parbox{9.4cm}{\vspace{2pt}Đánh g
 Nộp đồ án & \multicolumn{2}{l|}{\parbox{9.4cm}{\vspace{2pt}Đã hoàn thành ........\% đồ án\\ được bảo vệ/không được bảo vệ đồ án\vspace{2pt}}} & \\
 \hline
 \end{longtable}}
+}

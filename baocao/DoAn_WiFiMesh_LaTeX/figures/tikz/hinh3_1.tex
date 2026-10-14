@@ -1,0 +1,34 @@
+% Hình 3.1. Sơ đồ khối tổng thể của hệ thống (ba lớp)
+\begin{tikzpicture}
+% ---- Lớp mạng mesh ----
+\node[nhan, anchor=west] (t1) at (-2.4,1.25) {Lớp mạng mesh (painlessMesh)};
+\node[khoi, text width=3.9cm] (l1) at (0,0) {Leaf 1\\ESP32-CAM\\OV3660};
+\node[khoi, text width=3.9cm] (l2) at (4.85,0) {Leaf 2\\ESP32-CAM\\OV3660};
+\node[khoi, text width=3.9cm] (l3) at (9.7,0) {Leaf 3\\ESP32-CAM\\OV3660};
+\node[khoi, text width=4.6cm] (root) at (4.85,-3.1) {Root\\ESP32-WROOM-32D\\DevKitC};
+\draw[<->, dashed] (l1) -- (l2);
+\draw[<->, dashed] (l2) -- (l3);
+\draw[->] (l1.south) |- (root.west);
+\draw[->] (l2.south) -- node[right, tenre] {chunk ảnh} (root.north);
+\draw[->] (l3.south) |- (root.east);
+\node[tenre, anchor=north west, align=flush left, text width=4.6cm] (gc) at (-2.4,-3.75) {Nét đứt: liên kết giữa các Leaf, dùng để chuyển tiếp khi cần};
+\node[nhom, fit=(t1)(l1)(l3)(root)(gc)] (mesh) {};
+% ---- Lớp liên kết UART ----
+\node[nhan, anchor=west] (t2) at (-2.4,-6.55) {Lớp liên kết UART (921600 bps)};
+\node[khoi, text width=13.4cm] (uart) at (4.85,-7.55) {Khung nhị phân có CRC16: ảnh (0x01), telemetry (0x02), log (0x03)};
+\draw[->] (root.south) -- (root.south |- mesh.south) -- (root.south |- uart.north);
+\node[nhom, fit=(t2)(uart)] (luart) {};
+% ---- Lớp phần mềm trên máy tính ----
+\node[nhan, anchor=east] (t3) at (12.1,-9.25) {Lớp phần mềm trên máy tính};
+\node[tenre, anchor=east] (t4) at (8.3,-10.0) {Middleware Node.js};
+\node[khoi, text width=2.85cm, minimum height=1.6cm] (sp) at (-0.35,-11.25) {Đọc cổng serial};
+\node[khoi, text width=2.85cm, minimum height=1.6cm] (tk) at (3.3,-11.25) {Tách khung, kiểm tra CRC};
+\node[khoi, text width=2.85cm, minimum height=1.6cm] (io) at (6.95,-11.25) {Phát qua Socket.IO};
+\node[khoi, text width=2.85cm, minimum height=1.6cm] (web) at (10.6,-11.25) {Web\\Dashboard\\(trình duyệt)};
+\draw[->] (sp) -- (tk);
+\draw[->] (tk) -- (io);
+\draw[->] (io) -- (web);
+\node[nhom, fit=(t4)(sp)(io), inner sep=5pt] (mw) {};
+\draw[->] (uart.south -| sp.north) -- (sp.north);
+\node[nhom, fit=(t3)(mw)(web)] (lpc) {};
+\end{tikzpicture}
