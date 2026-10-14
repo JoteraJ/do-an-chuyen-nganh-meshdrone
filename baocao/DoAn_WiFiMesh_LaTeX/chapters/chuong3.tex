@@ -1,0 +1,279 @@
+% ================= CHƯƠNG 3 =================
+\chapter{THIẾT KẾ HỆ THỐNG}\label{chap:3}
+
+Dựa trên cơ sở lý thuyết ở Chương 2, chương này trình bày thiết kế của hệ thống theo thứ tự từ tổng quát đến chi tiết. Phần đầu chương mô tả sơ đồ khối tổng thể gồm ba lớp, sau đó lần lượt đi vào phần cứng các node, firmware trên mạng mesh và phần mềm trên máy tính. Mỗi linh kiện và mỗi tham số được giới thiệu cùng với khối sử dụng nó.
+
+
+\section{Kiến trúc tổng thể}\label{sec:3.1}
+
+Hệ thống được tổ chức thành ba lớp như Hình~\ref{fig:3.1}. Lớp mạng mesh gồm ba Leaf mang camera và một Root; mỗi Leaf chụp ảnh JPEG, chia ảnh thành các chunk và gửi về Root qua mạng mesh, và khi cần, một Leaf khác có thể đóng vai trò node chuyển tiếp. Lớp liên kết UART là đường truyền tốc độ 921600 bps giữa Root và máy tính, trên đó Root gửi ảnh đã ghép, bản tin trạng thái (telemetry) và log theo một giao thức khung nhị phân có kiểm tra CRC. Lớp phần mềm trên máy tính gồm middleware Node.js đọc cổng serial, tách khung và phát dữ liệu qua Socket.IO tới Web Dashboard chạy trên trình duyệt.
+
+Cách chia lớp này tách việc truyền vô tuyến khỏi việc hiển thị. Root chỉ gửi lên máy tính những khung ảnh đã ghép hoàn chỉnh, nên middleware và dashboard không phải xử lý chunk hay mất gói trên mạng mesh. Các mục tiếp theo trình bày thiết kế của từng lớp theo đúng thứ tự trong Hình~\ref{fig:3.1}.
+
+
+\begin{figure}[!htbp]
+\centering
+\input{figures/tikz/hinh3_1}
+\caption{Sơ đồ khối tổng thể của hệ thống}\label{fig:3.1}
+\end{figure}
+
+
+\section{Thiết kế phần cứng}
+
+Phần cứng của hệ thống gồm một Root nối với máy tính và ba Leaf mang camera chạy pin độc lập. Vai trò, định danh (Identifier – ID) và phần cứng của từng node được tổng hợp trong Bảng~\ref{tab:3.1}. Các mục con tiếp theo trình bày cấu hình của từng loại node, trong đó khối nguồn được trình bày cùng với Leaf vì chỉ Leaf chạy bằng pin.
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Vai trò và phần cứng các node}\label{tab:3.1}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|C{1.70cm}|L{2.94cm}|L{9.00cm}|}
+\hline
+\textbf{Vai trò} & \textbf{Node ID} & \textbf{Phần cứng và ghi chú} \\
+\hline
+Root & 2846999225 & ESP32-WROOM-32D DevKitC, không có PSRAM, chip USB–UART CP2102, UART 921600 bps \\
+\hline
+Leaf & 1207369673 & ESP32-CAM-MB OV3660, pin 18650 và module tăng áp; từng gặp sự cố nguồn khi cấp qua USB \\
+\hline
+Leaf & 1207433521 & ESP32-CAM-MB OV3660, pin 18650 và module tăng áp \\
+\hline
+Leaf & 1207449329 & ESP32-CAM-MB OV3660, pin 18650 và module tăng áp \\
+\hline
+\end{tabular}}
+\end{table}
+
+
+\subsection{Node Root}
+
+Root dùng board ESP32-WROOM-32D DevKitC, được cấp nguồn và giao tiếp với máy tính qua cổng USB thông qua chip chuyển đổi USB–UART CP2102. Nhờ chip này, middleware đọc trực tiếp luồng dữ liệu UART của Root như một cổng COM (Communication port) mà không cần mạch nạp rời. Root không xử lý camera nên không cần PSRAM; firmware được điều chỉnh để mọi vùng đệm nằm trong SRAM nội, và giới hạn khoảng 120 KB heap trống của board quyết định số vùng đệm ghép ảnh ở mục~\ref{subsec:3.3.3}.
+
+
+\subsection{Node Leaf và khối nguồn}
+
+Mỗi Leaf gồm board ESP32-CAM-MB với camera OV3660 và một khối nguồn độc lập để có thể tách node ra xa máy tính. Khối nguồn gồm một pin 18650 loại 2000 mAh, đế pin một cell và module tăng áp một chiều DC-DC (Direct Current) nhận đầu vào 0,9–5 V, đầu ra 5 V qua cổng USB-A. Đề tài sử dụng mạch tăng áp thay vì mạch hạ áp LM2596 nêu trong tài liệu ban đầu, vì một cell 18650 chỉ có điện áp danh định khoảng 3,7 V, thấp hơn mức 5 V cần cấp cho board.
+
+Do đầu ra của module là cổng USB-A, board được nối với khối nguồn bằng cáp Micro-USB thông thường. Điểm hàn duy nhất là dây từ đế pin vào chân IN của module, kèm một tụ hóa 470 µF hàn song song tại chân IN để giảm sụt áp khi ESP32 phát WiFi với dòng đỉnh lớn. Trước khi cắm vào board, điện áp đầu ra của module được kiểm tra bằng đồng hồ vạn năng theo quy trình hàn tám bước đã soạn. Sơ đồ khối phần cứng của một Leaf được trình bày ở Hình~\ref{fig:3.2}.
+
+
+\begin{figure}[!htbp]
+\centering
+\input{figures/tikz/hinh3_2}
+\caption{Sơ đồ khối phần cứng của một Leaf}\label{fig:3.2}
+\end{figure}
+
+
+\subsection{Tổng hợp linh kiện}
+
+Bảng~\ref{tab:3.2} tổng hợp các linh kiện chính đã giới thiệu ở hai mục trên cùng số lượng thực tế đang dùng. Số pin, đế pin và module tăng áp nhiều hơn số Leaf để có linh kiện dự phòng khi một khối nguồn bị hỏng. Các phụ kiện như tụ hóa và dây cắm được mua một lần và dùng chung cho tất cả các node.
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Danh sách linh kiện chính}\label{tab:3.2}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|L{6.50cm}|C{1.92cm}|L{5.20cm}|}
+\hline
+\textbf{Linh kiện} & \textbf{Số lượng} & \textbf{Mục đích} \\
+\hline
+ESP32-WROOM-32D DevKitC (CP2102) & 1 & Root \\
+\hline
+ESP32-CAM-MB OV3660 (đế nạp CH340) & 3 & Leaf \\
+\hline
+Pin 18650 2000 mAh & 4 & Nguồn Leaf (1 dự phòng) \\
+\hline
+Đế pin 18650 một cell & 5 & Nguồn Leaf \\
+\hline
+Module tăng áp DC-DC 0,9–5 V ra 5 V USB & 5 & Nguồn Leaf (dự phòng) \\
+\hline
+Tụ hóa 470 µF 16 V & 10 & Lọc nguồn tại chân IN của module tăng áp \\
+\hline
+Dây cắm test board đực – cái 20 cm & 3 bẹ & Đấu nối thử nghiệm \\
+\hline
+\end{tabular}}
+\end{table}
+
+
+\section{Thiết kế firmware trên mạng mesh}
+
+Firmware trên mạng mesh đảm nhận việc chụp, phân mảnh, truyền và ghép ảnh. Mục này trình bày cấu trúc gói chunk dùng chung cho cả hai loại node, sau đó là firmware của Leaf, firmware của Root và các tham số cấu hình chính. Firmware của cả hai loại node chạy trong tác vụ loopTask của lõi Arduino-ESP32 đã trình bày ở mục~\ref{sec:2.4}.
+
+
+\subsection{Cơ chế phân mảnh và cấu trúc gói chunk}
+
+Kích thước một ảnh JPEG lớn hơn nhiều so với giới hạn khoảng 1400 byte của một bản tin painlessMesh, nên ảnh phải được chia thành các mảnh dữ liệu (chunk). Mỗi chunk mang tối đa 1024 byte dữ liệu ảnh và một header 16 byte như Bảng~\ref{tab:3.3}; kích thước 1024 byte được chọn gần với giới hạn bản tin vì giảm kích thước chunk không làm giảm đụng độ trên kênh dùng chung, như đã phân tích ở mục~\ref{sec:2.3}. Header cho phép Root biết chunk thuộc node nào, khung nào, ở vị trí nào và khung có tổng bao nhiêu chunk. Trường capture\_us là mốc thời gian chụp theo đồng hồ chung của mesh, được bổ sung ngày 30/09 để đo độ trễ; trước đó header chỉ có 12 byte.
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Cấu trúc header chunk 16 byte}\label{tab:3.3}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|C{1.92cm}|L{4.50cm}|C{4.14cm}|C{3.10cm}|}
+\hline
+\textbf{Offset} & \textbf{Trường} & \textbf{Kiểu} & \textbf{Số byte} \\
+\hline
+0 & node\_\allowbreak{}id & uint32\_\allowbreak{}t & 4 \\
+\hline
+4 & frame\_\allowbreak{}id & uint16\_\allowbreak{}t & 2 \\
+\hline
+6 & chunk\_\allowbreak{}index & uint16\_\allowbreak{}t & 2 \\
+\hline
+8 & total\_\allowbreak{}chunks & uint16\_\allowbreak{}t & 2 \\
+\hline
+10 & payload\_\allowbreak{}len & uint16\_\allowbreak{}t & 2 \\
+\hline
+12 & capture\_\allowbreak{}us & uint32\_\allowbreak{}t & 4 \\
+\hline
+ & Tổng &  & 16 \\
+\hline
+\end{tabular}}
+\end{table}
+
+Vì painlessMesh truyền bản tin dạng chuỗi ký tự, toàn bộ header và payload được mã hóa Base64, nên một gói thực tế dài tối đa 1388 ký tự. Phía Root, ảnh sau khi ghép được đóng vào khung UART với một header phụ riêng, trình bày ở mục~\ref{subsec:3.4.1}. Quan hệ giữa gói chunk trên mạng mesh và khung truyền qua UART được minh họa ở Hình~\ref{fig:3.3}.
+
+
+\begin{figure}[!htbp]
+\centering
+\input{figures/tikz/hinh3_3}
+\caption{Cấu trúc gói chunk trên mạng mesh và khung UART}\label{fig:3.3}
+\end{figure}
+
+
+\subsection{Firmware node Leaf}
+
+Lưu đồ chụp và gửi ảnh của Leaf được trình bày ở Hình~\ref{fig:3.4}. Theo chu kỳ CAPTURE\_INTERVAL\_MS, Leaf chụp một ảnh, kiểm tra ảnh hợp lệ, lấy mốc thời gian bằng mesh.getNodeTime(), chia ảnh thành các chunk và gửi lần lượt. Leaf tự bỏ những khung lớn hơn 24 KB để khớp với kích thước vùng đệm ghép ảnh của Root.
+
+
+\begin{figure}[!htbp]
+\centering
+\input{figures/tikz/hinh3_4}
+\caption{Lưu đồ chụp và gửi ảnh tại Leaf}\label{fig:3.4}
+\end{figure}
+
+Ở phiên bản đầu, Leaf gửi bằng sendBroadcast, khiến mỗi chunk bị phát tới mọi node, kể cả các Leaf khác vốn không ghép ảnh. Phiên bản hiện tại để Root phát beacon “\#ROOT” mỗi 2 giây; Leaf học định danh Root từ beacon này và gửi chunk bằng sendSingle thẳng tới Root. Ký tự \# được chọn vì không thuộc bảng mã Base64 nên bản tin điều khiển không bị nhầm với chunk.
+
+Để giảm tranh chấp kênh khi nhiều Leaf cùng gửi, firmware áp dụng cơ chế gửi lệch pha (staggering) dựa trên đồng hồ chung của mesh. Chu kỳ chụp 600 ms được chia thành ba khe 200 ms, mỗi Leaf được gán một khe cố định theo node ID; node không có trong bảng gán khe được xếp khe bằng phép chia lấy dư node ID cho số khe. Nhờ đó, tại mỗi thời điểm chỉ có một Leaf gửi chuỗi chunk của mình.
+
+Leaf còn có cơ chế watchdog ở mức ứng dụng. Nếu mất beacon của Root quá 8 giây, Leaf quên định danh Root để học lại; nếu mất quá 30 giây, Leaf khởi động lại board. Ngoài ra, mỗi 2 giây Leaf gửi bản tin \#NSTAT về Root chứa RSSI, heap, phiên bản firmware, nguyên nhân khởi động lại gần nhất và thời gian hoạt động.
+
+
+\subsection{Firmware node Root}\label{subsec:3.3.3}
+
+Root nhận chunk, giải mã Base64 và ghép ảnh theo lưu đồ ở Hình~\ref{fig:3.5}. Mỗi khung đang ghép được giữ trong một vùng đệm ghép ảnh (slot) có bitmap đánh dấu các chunk đã nhận và mốc thời gian để hủy khung quá 2 giây chưa đủ chunk. Root có bốn vùng đệm, mỗi vùng 24 KB, tổng cộng 96 KB SRAM; số vùng đệm phải lớn hơn số Leaf gửi đồng thời để chunk của Leaf này không chiếm mất vùng đệm của khung đang ghép dở của Leaf khác.
+
+
+\begin{figure}[!htbp]
+\centering
+\input{figures/tikz/hinh3_5}
+\caption{Lưu đồ nhận và ghép ảnh tại Root}\label{fig:3.5}
+\end{figure}
+
+Khi chunk của một khung mới từ cùng một node tới, Root hủy ngay khung cũ chưa xong của node đó (cơ chế thay thế, supersede), vì Leaf gửi tuần tự nên khung cũ không thể hoàn thành nữa. Khi hết vùng đệm trống, khung cũ nhất bị loại theo kiểu LRU (Least Recently Used). Khi một khung đủ chunk, Root đóng khung ảnh và ghi ra UART, rồi giải phóng vùng đệm cho khung tiếp theo.
+
+Ngoài chức năng ghép ảnh, Root gửi telemetry mỗi 2 giây gồm số khung ghép thành công và bị hủy, số chunk, heap trống, danh sách node, cây topology lấy từ thư viện, số hop và RSSI từng liên kết, độ trễ trung bình, nhỏ nhất, lớn nhất theo từng node và thời gian tự phục hồi. Root theo dõi thời điểm nhận chunk hợp lệ gần nhất của từng node trong một mảng tĩnh tám phần tử; node có trong danh sách mesh nhưng không gửi chunk quá 10 giây được đánh dấu im lặng để phát hiện node vẫn được đếm nhưng không còn gửi ảnh. Nếu heap xuống dưới 40 KB liên tục quá 10 giây, Root ghi log và tự khởi động lại.
+
+
+\subsection{Các tham số cấu hình chính}
+
+Các tham số quan trọng của firmware được đặt trong tệp mesh\_config.h của từng node và được tổng hợp ở Bảng~\ref{tab:3.4}. Nhóm tham số đầu quy định kích thước chunk, khung và vùng đệm ghép ảnh, nhóm tiếp theo quy định chu kỳ chụp, beacon và gửi lệch pha. Nhóm cuối gồm các ngưỡng giám sát của watchdog, node im lặng, bảo vệ heap và bộ đệm phát UART.
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Các tham số cấu hình chính của firmware}\label{tab:3.4}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|L{5.33cm}|L{3.62cm}|L{5.00cm}|}
+\hline
+\textbf{Tham số} & \textbf{Giá trị} & \textbf{Ý nghĩa} \\
+\hline
+Payload tối đa mỗi chunk & 1024 byte & Dữ liệu ảnh trong một chunk \\
+\hline
+MAX\_\allowbreak{}CONCURRENT\_\allowbreak{}FRAMES & 4 & Số khung ghép song song tại Root \\
+\hline
+MAX\_\allowbreak{}FRAME\_\allowbreak{}SIZE & 24576 byte & Kích thước tối đa một khung \\
+\hline
+MAX\_\allowbreak{}CHUNKS\_\allowbreak{}PER\_\allowbreak{}FRAME & 24 & Số chunk tối đa một khung \\
+\hline
+REASSEMBLY\_\allowbreak{}TIMEOUT\_\allowbreak{}MS & 2000 ms & Thời gian chờ ghép một khung \\
+\hline
+CAPTURE\_\allowbreak{}INTERVAL\_\allowbreak{}MS & 600 ms & Chu kỳ chụp của Leaf (trước là 300 ms) \\
+\hline
+ROOT\_\allowbreak{}BEACON\_\allowbreak{}INTERVAL\_\allowbreak{}MS & 2000 ms & Chu kỳ phát beacon \#ROOT \\
+\hline
+ROOT\_\allowbreak{}LOST\_\allowbreak{}RESET\_\allowbreak{}MS /\allowbreak{} RESTART\_\allowbreak{}MS & 8000 /\allowbreak{} 30000 ms & Watchdog Leaf khi mất beacon \\
+\hline
+STAGGER\_\allowbreak{}SLOTS & 3 & Số khe gửi lệch pha \\
+\hline
+SILENT\_\allowbreak{}NODE\_\allowbreak{}MS & 10000 ms & Ngưỡng đánh dấu node im lặng \\
+\hline
+HEAP\_\allowbreak{}CRITICAL\_\allowbreak{}BYTES /\allowbreak{} MS & 40960 byte /\allowbreak{} 10000 ms & Ngưỡng bảo vệ heap tại Root \\
+\hline
+UART\_\allowbreak{}TX\_\allowbreak{}BUFFER\_\allowbreak{}SIZE & 8192 byte & Bộ đệm phát UART tại Root \\
+\hline
+\end{tabular}}
+\end{table}
+
+
+\section{Thiết kế giao tiếp và phần mềm trên máy tính}\label{sec:3.4}
+
+Mục này trình bày lớp liên kết UART và lớp phần mềm trên máy tính trong Hình~\ref{fig:3.1}. Nội dung gồm giao thức truyền dữ liệu giữa Root và máy tính, middleware xử lý dữ liệu và giao diện giám sát Web Dashboard. Ba thành phần này được thiết kế để luồng ảnh hiển thị trên trình duyệt không bị gián đoạn khi luồng byte từ cổng serial có lỗi.
+
+\subsection{Giao thức truyền dữ liệu qua UART}\label{subsec:3.4.1}
+
+Root gửi dữ liệu lên máy tính qua UART 921600 bps theo giao thức khung nhị phân được đặc tả trong tệp UART\_PROTOCOL.md, có cấu trúc như Bảng~\ref{tab:3.5}. Khung bắt đầu bằng hai byte đồng bộ AA 55, tiếp theo là một byte kiểu, bốn byte độ dài, phần dữ liệu và hai byte CRC16/CCITT-FALSE tính trên phần từ byte kiểu đến hết dữ liệu. Có ba kiểu khung là ảnh đã ghép (0x01), telemetry dạng JSON (0x02) và log (0x03); khung ảnh có thêm header phụ 10 byte gồm node\_id, frame\_id và độ dài ảnh JPEG.
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Cấu trúc khung UART}\label{tab:3.5}
+{\fontsize{12}{14.5}\selectfont\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{|C{3.11cm}|C{2.26cm}|L{8.60cm}|}
+\hline
+\textbf{Trường} & \textbf{Số byte} & \textbf{Mô tả} \\
+\hline
+MAGIC & 2 & AA 55, đánh dấu đầu khung \\
+\hline
+TYPE & 1 & 0x01 ảnh, 0x02 telemetry, 0x03 log \\
+\hline
+LEN & 4 & Độ dài payload (uint32, little-endian) \\
+\hline
+PAYLOAD & LEN & Dữ liệu theo kiểu khung \\
+\hline
+CRC16 & 2 & CRC16/\allowbreak{}CCITT-FALSE trên TYPE..PAYLOAD \\
+\hline
+\end{tabular}}
+\end{table}
+
+Để việc ghi UART không chặn vòng lặp chính, Root đặt bộ đệm phát 8192 byte trước khi khởi tạo cổng serial và bỏ khung ảnh nếu dung lượng còn trống của bộ đệm nhỏ hơn một nửa; telemetry và log không bao giờ bị bỏ. Số khung ảnh bị bỏ tại UART được đếm và đưa lên dashboard. Mức log của painlessMesh được hạ xuống chỉ báo lỗi, vì log văn bản chèn vào luồng nhị phân khiến middleware phải bỏ qua nhiều byte để tìm lại đầu khung.
+
+
+\begin{figure}[!htbp]
+\centering
+\input{figures/tikz/hinh3_6}
+\caption{Lưu đồ tách khung tại middleware}\label{fig:3.6}
+\end{figure}
+
+
+\subsection{Middleware trên máy tính}
+
+Middleware được viết bằng Node.js, đọc cổng serial bằng thư viện serialport và phát dữ liệu tới trình duyệt bằng Socket.IO qua năm sự kiện: connect, disconnect, status, telemetry và frame. Bộ tách khung tìm hai byte MAGIC, kiểm tra độ dài (chấp nhận tối đa 131072 byte) và CRC trước khi phát dữ liệu, theo lưu đồ ở Hình~\ref{fig:3.6}. Khi gặp byte rác, độ dài vô lý hoặc CRC sai, bộ tách khung chỉ bỏ phần dữ liệu lỗi và tiếp tục quét, nên một khung hỏng không làm dừng cả luồng. Middleware không ghép ảnh vì Root đã gửi ảnh hoàn chỉnh. Bộ kiểm thử test\_protocol.js đã kiểm tra bảy kịch bản, gồm dữ liệu bị cắt vụn, có byte rác xen giữa và CRC sai, kết quả đạt 7/7.
+
+
+\begin{figure}[!htbp]\centering
+\hinhcon{dashboardtab1.png}{0.72}{Tab Live}{fig:3.7a}{Chèn hình: ảnh chụp tab Live của Web Dashboard (lưu thành figures/dashboardtab1.png)}
+
+\vspace{6pt}
+\hinhcon{dashboardtab2.png}{0.72}{Tab So sánh}{fig:3.7b}{Chèn hình: ảnh chụp tab So sánh của Web Dashboard (lưu thành figures/dashboardtab2.png)}
+\caption{Giao diện Web Dashboard: (a) tab Live; (b) tab So sánh}\label{fig:3.7}
+\end{figure}
+
+
+\subsection{Web Dashboard}
+
+Dashboard là trang web sử dụng React 18 và Tailwind CSS, nhận dữ liệu thời gian thực từ middleware và gồm hai tab chính như Hình~\ref{fig:3.7}. Tab Live ở Hình~\ref{fig:3.7a} hiển thị ảnh từ từng Leaf, trạng thái kết nối, cây topology vẽ bằng đồ họa vector SVG (Scalable Vector Graphics) với màu cạnh theo RSSI, số hop và độ trễ. Tab So sánh ở Hình~\ref{fig:3.7b} tính tốc độ thay đổi của số khung thành công, số khung hủy và số chunk từ telemetry, sau đó nhóm các mẫu theo số node để so sánh FPS tổng, FPS mỗi Leaf, thông lượng, tỉ lệ hủy khung, số chunk mỗi giây, kích thước khung trung bình, heap trống tại Root và thời gian tự phục hồi.
+
+Số liệu trên tab So sánh có thể xuất ra tệp CSV để phân tích. Nguyên tắc thiết kế của dashboard là không sử dụng dữ liệu giả lập: khi chưa có dữ liệu, dashboard hiển thị trạng thái chưa có dữ liệu. Các số liệu ở Chương 4 được ghi bằng tab So sánh và xuất ra tệp CSV theo cách này.
+
+
+\section{Kết luận chương}
+
+Chương 3 đã trình bày thiết kế hệ thống từ sơ đồ khối ba lớp tới từng khối phần cứng, firmware và phần mềm. Ở lớp mạng mesh, ảnh JPEG được chia thành các chunk tối đa 1024 byte kèm header 16 byte, được Leaf gửi thẳng tới Root bằng sendSingle theo khe lệch pha, rồi được Root ghép bằng bốn vùng đệm với cơ chế thay thế và loại bỏ theo LRU. Ảnh đã ghép được đóng khung nhị phân có CRC16 và truyền qua UART tới middleware để tách khung và hiển thị trên Web Dashboard. Chương 4 tiếp theo trình bày kết quả thử nghiệm của hệ thống đã thiết kế.

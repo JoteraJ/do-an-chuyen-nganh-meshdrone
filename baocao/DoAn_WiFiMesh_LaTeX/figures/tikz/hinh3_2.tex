@@ -1,0 +1,28 @@
+% Hình 3.2. Sơ đồ khối phần cứng của một Leaf
+\begin{tikzpicture}
+% ---- Khối nguồn ----
+\node[nhan, anchor=west] (t1) at (-1.7,1.25) {Khối nguồn độc lập};
+\node[khoi, text width=2.9cm, minimum height=1.5cm] (pin) at (-0.2,0) {Pin 18650\\2000 mAh};
+\node[khoi, text width=2.6cm, minimum height=1.5cm] (de) at (4.4,0) {Đế pin\\một cell};
+\node[khoi, text width=3.6cm, minimum height=1.5cm] (boost) at (9.4,0) {Module tăng áp DC-DC\\0,9–5 V ra 5 V};
+\node[khoi, text width=2.4cm] (tu) at (6.65,-2.0) {Tụ hóa\\470 µF};
+\draw[->] (pin) -- node[above, tenre] {3,7 V} (de);
+\draw[->] (de) -- (boost);
+\draw (tu.north) -- (tu.north |- de.east) node[circle, fill, inner sep=1.3pt] {};
+\node[tenre, align=center] (ghichu) at (6.65,-3.25) {song song tại chân IN};
+\node[nhom, fit=(t1)(pin)(boost)(tu)(ghichu)] (gnguon) {};
+% ---- Board ESP32-CAM-MB ----
+\node[nhan, anchor=west] (t2) at (-1.7,-5.6) {Board ESP32-CAM-MB};
+\node[khoi, text width=2.9cm] (cam) at (-0.2,-6.9) {Camera OV3660};
+\node[khoi, text width=2.9cm] (ps) at (-0.2,-8.6) {PSRAM 4 MB};
+\node[khoi, text width=3.2cm, minimum height=2.6cm] (esp) at (4.6,-7.75) {ESP32\\hai lõi, WiFi};
+\node[khoi, text width=3.6cm, minimum height=1.5cm] (ch) at (9.4,-7.75) {Đế nạp CH340\\(cổng Micro-USB)};
+\node[khoi, text width=3.2cm] (ant) at (4.6,-10.35) {Anten PCB};
+\draw[->] (cam.east) -- (cam.east -| esp.west);
+\draw[<->] (ps.east) -- (ps.east -| esp.west);
+\draw[->] (ch.west) -- node[above, tenre] {5 V} (esp.east);
+\draw[<->] (esp.south) -- (ant.north);
+\node[nhom, fit=(t2)(cam)(ps)(ch)(ant)] (gboard) {};
+% ---- Cáp nối ----
+\draw[->] (boost.south) -- node[right, tenre] {cáp Micro-USB, 5 V} (ch.north);
+\end{tikzpicture}

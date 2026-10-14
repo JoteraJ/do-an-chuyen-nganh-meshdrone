@@ -1,0 +1,56 @@
+% ================= LỊCH TRÌNH LÀM ĐỒ ÁN =================
+% Khi có bản scan lịch trình có chữ ký của GVHD, lưu thành figures/lichtrinh.pdf;
+% trang scan sẽ tự thay cho bảng lịch trình bên dưới.
+\IfFileExists{figures/lichtrinh.pdf}{%
+  \includepdf[pages=-,pagecommand={\thispagestyle{phandau}}]{figures/lichtrinh.pdf}%
+}{%
+\clearpage
+{\fontsize{12}{14}\selectfont
+\noindent\begin{tabular}{@{}C{7.2cm}C{7.8cm}@{}}
+TRƯỜNG ĐẠI HỌC TÔN ĐỨC THẮNG & CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM\\
+\textbf{KHOA ĐIỆN – ĐIỆN TỬ} & Độc lập – Tự do – Hạnh phúc\\
+\rule{3cm}{0.4pt} & \rule{4cm}{0.4pt}
+\end{tabular}\par}
+\vspace{0.5cm}
+\begin{center}{\fontsize{16}{20}\selectfont\bfseries LỊCH TRÌNH LÀM \MakeUppercase{\loaidoanthuong}}\end{center}
+\noindent Họ tên sinh viên: \tensinhvien\\
+Lớp: \lop\hspace{2cm} MSSV: \mssv\\
+Tên đề tài: \tendetaithuong
+
+\vspace{0.3cm}
+{\fontsize{11}{13}\selectfont\renewcommand{\arraystretch}{1.2}
+\begin{longtable}{|C{2.2cm}|L{5.4cm}|L{4.2cm}|C{1.7cm}|}
+\hline
+\multirow{2}{*}{\textbf{Tuần/Ngày}} & \multicolumn{2}{c|}{\textbf{Khối lượng}} & \multirow{2}{*}{\textbf{GVHD ký}}\\
+\cline{2-3}
+ & \multicolumn{1}{c|}{\textbf{Đã thực hiện}} & \multicolumn{1}{c|}{\textbf{Tiếp tục thực hiện}} & \\
+\hline
+\endhead
+01/09 – 10/09/2026 & Nghiên cứu lý thuyết mạng mesh, painlessMesh, ESP-WIFI-MESH; viết firmware Root/Leaf (phân mảnh chunk 1024 B, ghép ảnh); đặc tả giao thức UART; xây dựng middleware Node.js (kiểm thử parser 7/7); chốt danh sách linh kiện. & Nhận linh kiện; bring-up board Root; chạy thử middleware với phần cứng thật. & \\
+\hline
+12/09 – 13/09/2026 & Bring-up board Root (driver CP210x, sửa lỗi firmware đòi PSRAM); Root gửi telemetry qua UART 921600; chạy middleware với Root thật, giảm mức log debug của painlessMesh. & Bring-up các node Leaf ESP32-CAM. & \\
+\hline
+14/09 – 16/09/2026 & Bring-up 3 Leaf ESP32-CAM OV3660; sửa lỗi quét mesh (chuyển sang fork Alteriom/painlessMesh), tắt kết nối STA của Root; chẩn đoán tranh chấp RF và lỗi nguồn USB; soạn quy trình hàn nguồn pin. & Thử nghiệm 2 Leaf đồng thời; hàn nguồn pin. & \\
+\hline
+17/09 – 18/09/2026 & Thử nghiệm 2 Leaf (tỉ lệ hủy khung \textasciitilde{}82 \%); xác định nguyên nhân do Root chỉ có 1 vùng đệm ghép; vẽ sơ đồ khối, lưu đồ; lập báo cáo tiến độ 18/09. & Sửa firmware: 4 vùng đệm ghép, gửi sendSingle về Root. & \\
+\hline
+26/09 – 27/09/2026 & Firmware Root ghép 4 khung song song, cơ chế supersede, beacon \#ROOT; Leaf học Root và gửi sendSingle; viết lại Dashboard với tab so sánh 1/2/3 Leaf. & Thử nghiệm 3 Leaf chạy pin. & \\
+\hline
+28/09 – 29/09/2026 & Hàn nguồn pin cho 3 Leaf; thử nghiệm 3 Leaf (phát hiện toàn mạng ngừng truyền dữ liệu, giảm tải chu kỳ 600 ms); chốt dùng painlessMesh; báo cáo tiến độ giữa kỳ. & Bổ sung latency, topology, RSSI và các cơ chế ổn định. & \\
+\hline
+30/09/2026 & Thêm mốc thời gian chụp vào header (16 byte), latency, cây topology, RSSI; watchdog Leaf, theo dõi node im lặng, bảo vệ heap, ghi UART không chặn, staggering. & Đo theo số hop, đo latency, đo dòng tiêu thụ, đo self-healing lặp lại. & \\
+\hline
+Kiểm tra giữa kỳ & \multicolumn{2}{l|}{\parbox{9.4cm}{\vspace{2pt}Đánh giá khối lượng hoàn thành ........\%\\ được tiếp tục/không tiếp tục thực hiện đồ án\vspace{2pt}}} & \\
+\hline
+ & & & \\[0.8cm]
+\hline
+ & & & \\[0.8cm]
+\hline
+ & & & \\[0.8cm]
+\hline
+ & & & \\[0.8cm]
+\hline
+Nộp đồ án & \multicolumn{2}{l|}{\parbox{9.4cm}{\vspace{2pt}Đã hoàn thành ........\% đồ án\\ được bảo vệ/không được bảo vệ đồ án\vspace{2pt}}} & \\
+\hline
+\end{longtable}}
+}

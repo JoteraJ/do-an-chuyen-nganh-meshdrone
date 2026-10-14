@@ -1,0 +1,48 @@
+% ================= CHƯƠNG 5 =================
+\chapter{KẾT LUẬN VÀ HƯỚNG PHÁT TRIỂN}\label{chap:5}
+
+Chương này tổng kết các kết quả mà đề tài đã đạt được dựa trên số liệu ở Chương 4 và nêu các hạn chế còn tồn tại. Phần cuối chương đề xuất hướng phát triển ngắn hạn và dài hạn cho hệ thống. Mỗi đề xuất được trình bày theo trình tự vấn đề, đề xuất, lý do và cách kiểm chứng.
+
+
+\section{Kết luận}
+
+Mục này tổng hợp các kết quả đạt được và các hạn chế của đề tài. Các kết quả và hạn chế chỉ được nêu trong phạm vi kết quả trình bày ở Chương 4. Những nội dung chưa được đo được ghi vào phần hạn chế và hướng phát triển.
+
+\subsection{Kết quả đạt được}
+
+Đề tài đã xây dựng một mạng WiFi Mesh gồm một Root và ba Leaf ESP32-CAM chạy pin độc lập, truyền ảnh JPEG từ nhiều Leaf về máy tính và hiển thị trên Web Dashboard theo thời gian thực. Chuỗi xử lý gồm chụp ảnh, chia chunk, truyền qua mạng mesh, ghép ảnh tại Root, đóng khung UART có CRC, tách khung ở middleware và hiển thị trên trình duyệt đã hoạt động trên phần cứng thật. Với một Leaf ở chu kỳ chụp 600 ms, hệ thống đạt 1,67 $\pm$ 0,40 khung/giây, thông lượng 7,8 KB/s và tỉ lệ hủy khung 0 \%.
+
+Qua thử nghiệm, đề tài xác định được hai nút thắt chính của hệ thống. Nút thắt thứ nhất là số vùng đệm ghép ảnh tại Root: với một vùng đệm, tỉ lệ hủy khung khoảng 82 \% khi hai Leaf gửi đồng thời, và sau khi tăng lên bốn vùng đệm, tỉ lệ hủy ở chu kỳ chụp 300 ms còn 0–5 \% trong khi FPS tổng tăng gần tuyến tính lên khoảng 3,5, 7 và 10 khung/giây với một, hai và ba Leaf. Nút thắt thứ hai là tải ghi UART tại Root: ở mức ba Leaf và chu kỳ 300 ms, toàn mạng ngừng truyền dữ liệu sau 6–26 giây, còn ở chu kỳ 600 ms, ba Leaf chạy liên tục khoảng 2 phút với FPS tổng 4,85 $\pm$ 0,96 khung/giây.
+
+Bên cạnh đó, firmware đã được bổ sung watchdog tại Leaf, theo dõi node im lặng, bảo vệ heap tại Root, ghi UART không chặn và gửi lệch pha giữa các Leaf. Firmware cũng đã có chức năng đo độ trễ, đo thời gian tự phục hồi theo luồng dữ liệu, ghi nhận cây topology và RSSI của từng liên kết. Các chức năng này cung cấp công cụ đo cho các thử nghiệm tiếp theo.
+
+\subsection{Hạn chế}
+
+Trong phạm vi kết quả trình bày ở Chương 4, hệ thống còn một số hạn chế. Hệ thống chưa có cơ chế gửi lại, nên chỉ cần mất một chunk thì toàn bộ khung ảnh bị hủy. Mạng ba Leaf ở chu kỳ 600 ms vẫn hoạt động sát ngưỡng: Chương 4 ghi nhận một đợt tỉ lệ hủy khung tăng lên 7–36 \% trong khoảng 20 giây và heap của Root có thời điểm giảm xuống 73 KB.
+
+Về phép đo, thời gian tự phục hồi ghi được phân tán từ 885 đến 32528 ms nên chưa được dùng làm kết quả. Chương 4 chưa trình bày kết quả đo độ trễ và thông lượng theo số hop, cũng như kết quả đo dòng tiêu thụ và thời gian hoạt động bằng pin. Các cải tiến ổn định ngày 30/09 mới có kết quả ban đầu, vì tệp CSV tương ứng không ghi phiên bản firmware.
+
+Về phạm vi thử nghiệm, các node được đặt cố định hoặc cầm tay trên mặt đất, nên các kết quả chưa phản ánh trường hợp node bay hoặc di chuyển liên tục. Các nhận xét ở Chương 4 vì vậy chỉ áp dụng cho cấu hình một Root và tối đa ba Leaf đặt trên mặt đất. Ngoài ra, thư viện painlessMesh truyền bản tin JSON qua TCP và chuyển tiếp theo từng cạnh, nên tốn nhiều thời gian chiếm kênh và không được thiết kế cho nhiều luồng ảnh song song.
+
+
+\section{Hướng phát triển}
+
+Trên cơ sở các hạn chế đã nêu, hướng phát triển của đề tài được chia thành hai giai đoạn. Giai đoạn ngắn hạn hoàn thiện phép đo và giảm tải cho Root trên nền painlessMesh hiện tại. Giai đoạn dài hạn thay đổi nền tảng truyền thông và mở rộng mô hình theo hướng FANET.
+
+\subsection{Hướng phát triển ngắn hạn}
+
+Hướng thứ nhất là tách việc ghi UART khỏi vòng lặp chính. Khi Root phải ghi UART liên tục, mesh.update() trong loop() bị gọi thưa và toàn mạng ngừng truyền dữ liệu, như đã ghi nhận ở Chương 4. Đề tài đề xuất chuyển việc ghi UART sang một tác vụ FreeRTOS riêng, nhận dữ liệu qua hàng đợi. Theo cơ chế ở mục~\ref{sec:2.4}, tác vụ ở trạng thái Blocked khi chờ hàng đợi không chiếm CPU, nên vòng lặp chứa mesh.update() không còn bị chặn bởi thao tác ghi UART. Đề xuất này được kiểm chứng bằng cách so sánh chỉ số loop\_max\_ms và số khung ảnh bị bỏ tại UART trước và sau khi thay đổi, trong cùng kịch bản ba Leaf, sau đó thử đưa chu kỳ chụp về gần 300 ms.
+
+Hướng thứ hai là chuẩn hóa phương pháp đo thời gian tự phục hồi. Các giá trị ghi được ngày 29/09 phân tán từ 1243 đến 19919 ms, nên giá trị trung bình không có ý nghĩa. Đề tài đề xuất đo lặp từ 5 đến 10 lần và tách riêng hai kịch bản: đổi tuyến qua node trung gian, và mất tín hiệu rồi kết nối lại. Lý do là hai kịch bản này kích hoạt hai cơ chế phát hiện khác nhau, trong đó trường hợp node mất nguồn đột ngột phụ thuộc vào thời gian chờ NODE\_TIMEOUT của painlessMesh, nên gộp chung sẽ làm giá trị trung bình không đại diện cho kịch bản nào. Kết quả được kiểm chứng khi mỗi kịch bản có giá trị nhỏ nhất, lớn nhất và trung bình với độ phân tán đủ nhỏ để so sánh.
+
+Hướng thứ ba là bổ sung các phép đo còn thiếu so với nhiệm vụ đề tài. Chương 4 chưa có kết quả theo số hop, trong khi mức suy giảm thông lượng theo số hop là một tiêu chí đánh giá chính ở mục~\ref{sec:1.2}. Đề tài đề xuất bố trí các node thành chuỗi Root – node chuyển tiếp – Leaf và đo thông lượng, độ trễ ở một, hai và ba hop với cùng chu kỳ chụp, đồng thời đo dòng tiêu thụ của Leaf để ước lượng thời gian chạy pin. Cây topology và số hop do Root gửi lên dashboard cho phép kiểm tra số hop thực tế trong mỗi phép đo.
+
+Hướng thứ tư là bổ sung cơ chế gửi lại có chọn lọc. Hiện nay, chỉ cần mất một chunk thì cả khung ảnh bị hủy. Đề tài đề xuất cơ chế NACK (Negative Acknowledgement) gộp: sau mỗi khung, Root gửi một bản tin liệt kê các chunk còn thiếu để Leaf chỉ gửi lại các chunk đó. Cơ chế này chỉ phát sinh một bản tin xác nhận cho mỗi khung nên tránh được hiện tượng bão bản tin xác nhận; hiệu quả được kiểm chứng bằng cách so sánh tỉ lệ hủy khung ở cùng số Leaf và cùng chu kỳ chụp.
+
+\subsection{Hướng phát triển dài hạn}
+
+Về lâu dài, đề tài có thể phát triển tiếp phiên bản sử dụng API ESP-WIFI-MESH chính thức trên ESP-IDF, hiện đã được xây dựng một phần. Vấn đề của painlessMesh là bản tin phải mã hóa Base64, làm tăng khoảng 33 \% kích thước dữ liệu, và được truyền dưới dạng JSON qua TCP theo từng cạnh. ESP-WIFI-MESH truyền dữ liệu nhị phân trực tiếp, dữ liệu gửi lên Root tự đi theo cây và có sẵn cơ chế điều khiển luồng chống tràn bộ đệm, như trình bày ở mục~\ref{sec:2.3}. Hai phiên bản có thể được so sánh bằng FPS tổng và tỉ lệ hủy khung trong cùng kịch bản ba Leaf.
+
+Một hướng khác là mở rộng mô hình theo các yêu cầu của FANET. painlessMesh tự tổ chức thành cây và không dùng thông tin vị trí, trong khi \citet{bekmezci2013} dẫn một nghiên cứu mô phỏng, trong đó giao thức định tuyến dựa trên vị trí GPSR cho kết quả tốt hơn các giao thức chủ động và phản ứng trong FANET. Các tác giả cũng chỉ ra rằng phần lớn nghiên cứu giả định topology hai chiều, trong khi FANET thực tế hoạt động trong không gian ba chiều. Vì vậy, đề tài có thể tích hợp module định vị GPS hoặc UWB (Ultra-Wideband) để thử nghiệm định tuyến theo vị trí, đồng thời đặt các node ở nhiều độ cao khác nhau để đánh giá ảnh hưởng của topology ba chiều lên thông lượng và thời gian tự phục hồi.
+
+ESP-NOW \citep{espressif_espnow} là một hướng nữa để tăng tốc độ truyền ảnh vì giao thức này không cần kết nối TCP giữa các node. Tuy nhiên, ESP-NOW chỉ truyền trực tiếp giữa hai node, nên cần tự xây dựng cơ chế chuyển tiếp để đáp ứng yêu cầu truyền đa chặng. Hướng này chỉ nên được thực hiện sau khi đã có số liệu theo số hop của phiên bản hiện tại để làm mốc so sánh.

@@ -1,0 +1,44 @@
+% Hình 3.6. Lưu đồ tách khung tại middleware (FrameParser.push)
+\begin{tikzpicture}[node distance=0.25cm, quyetdinh/.append style={aspect=4.2}]
+\node[batdau] (s) {Bắt đầu: sự kiện data của serialport};
+\node[xuly, below=of s, text width=6.8cm] (p1) {Nối dữ liệu mới vào cuối bộ đệm \_buf};
+\node[quyetdinh, below=0.5cm of p1] (d1) {Tìm thấy MAGIC?};
+\node[xuly, below=0.5cm of d1, text width=6.8cm] (p2) {Bỏ các byte rác trước MAGIC};
+\node[quyetdinh, below=of p2] (d2) {Đủ 7 byte đầu khung?};
+\node[quyetdinh, below=0.5cm of d2] (d3) {Độ dài LEN > 131072?};
+\node[quyetdinh, below=0.5cm of d3] (d4) {Đủ 7 + LEN + 2 byte?};
+\node[xuly, below=0.5cm of d4, text width=6.8cm] (p4) {Tách payload, tính CRC16, cắt khung khỏi \_buf};
+\node[quyetdinh, below=of p4] (d5) {CRC khớp?};
+\node[vaora, below=0.5cm of d5, text width=6.0cm] (io) {Phát sự kiện frame, telemetry\\hoặc log theo TYPE};
+% Thiếu dữ liệu: chờ sự kiện data tiếp theo (bên phải)
+\node[batdau, text width=2.8cm] (e) at (d2 -| 5.75,0) {Chờ sự kiện data tiếp theo};
+\coordinate (bus) at (7.8,0);
+% Lỗi: bỏ dữ liệu lỗi rồi quét lại (bên trái)
+\node[xuly, text width=2.0cm] (r3) at (d3 -| -6.0,0) {Bỏ 1 byte};
+\node[xuly, text width=2.0cm] (r5) at (d5 -| -6.0,0) {Tăng số khung CRC sai};
+\coordinate (trai) at (-7.45,0);
+\coordinate (vong) at ($(p1.south)!0.5!(d1.north)$);
+% Luồng chính
+\draw[->] (s) -- (p1);
+\draw[->] (p1) -- (d1);
+\draw[->] (d1) -- node[right, tenre] {Đúng} (p2);
+\draw[->] (p2) -- (d2);
+\draw[->] (d2) -- node[right, tenre] {Đúng} (d3);
+\draw[->] (d3) -- node[right, tenre] {Sai} (d4);
+\draw[->] (d4) -- node[right, tenre] {Đúng} (p4);
+\draw[->] (p4) -- (d5);
+\draw[->] (d5) -- node[right, tenre] {Đúng} (io);
+% Nhánh chờ dữ liệu
+\draw (d1.east) -- node[above, tenre] {Sai} (d1.east -| e);
+\draw[->] (d1.east -| e) -- (e.north);
+\draw[->] (d2.east) -- node[above, tenre] {Sai} (e.west);
+\draw (d4.east) -- node[above, tenre, pos=0.3] {Sai} (d4.east -| bus);
+\draw[->] (d4.east -| bus) |- (e.east);
+% Nhánh lỗi và vòng lặp quét khung kế tiếp
+\draw[->] (d3.west) -- node[above, tenre] {Đúng} (r3.east);
+\draw[->] (d5.west) -- node[above, tenre] {Sai} (r5.east);
+\draw (r3.west) -- (r3.west -| trai);
+\draw (r5.west) -- (r5.west -| trai);
+\draw (io.south) -- ++(0,-0.45) coordinate (duoi) -- (duoi -| trai);
+\draw[->] (duoi -| trai) |- (vong);
+\end{tikzpicture}

@@ -1,0 +1,271 @@
+% ============================================================
+%  CẤU HÌNH ĐỊNH DẠNG — theo hướng dẫn trình bày của Khoa
+%  Times New Roman cỡ 13, giãn dòng 1.5, lề trên 3.5 cm, dưới 3 cm,
+%  trái 3.5 cm, phải 2 cm, đầu đoạn lùi 1 tab.
+% ============================================================
+\usepackage[fontsize=13pt]{scrextend}
+\usepackage[a4paper,top=3.5cm,bottom=3cm,left=3.5cm,right=2cm,
+            headheight=32pt,headsep=14pt,footskip=36pt]{geometry}
+
+% ---------- Font ----------
+% Biên dịch bằng XeLaTeX (TeXstudio: Options > Configure TeXstudio > Build >
+% Default Compiler = XeLaTeX). Nhánh pdfLaTeX bên dưới chỉ để dự phòng.
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T5]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{tgtermes}   % TeX Gyre Termes ~ Times New Roman, hỗ trợ T5
+  \usepackage{amsmath,amssymb}
+\else
+  \usepackage{amsmath}
+  \usepackage{fontspec}
+  % Times New Roman nếu máy có (Windows); nếu không có (Linux, Overleaf)
+  % thì dùng TeX Gyre Termes, bản tương đương có đủ dấu tiếng Việt.
+  \IfFontExistsTF{Times New Roman}{%
+    \setmainfont{Times New Roman}%
+  }{%
+    \setmainfont{texgyretermes}[
+      Extension      = .otf,
+      UprightFont    = *-regular,
+      BoldFont       = *-bold,
+      ItalicFont     = *-italic,
+      BoldItalicFont = *-bolditalic]%
+  }
+  % Font toán cùng kiểu Times để công thức đồng bộ với văn bản
+  \usepackage{unicode-math}
+  \setmathfont{texgyretermes-math.otf}
+\fi
+
+\usepackage{setspace}
+\onehalfspacing
+\setlength{\parindent}{1.27cm}
+\setlength{\parskip}{3pt}
+\usepackage{indentfirst}
+\sloppy
+
+% ---------- Gói thường dùng ----------
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage[table]{xcolor}
+\usepackage{array,tabularx,longtable,booktabs,multirow}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage[normalem]{ulem}
+\usepackage{needspace}
+\usepackage{fancyhdr}
+\usepackage[nobottomtitles*]{titlesec}
+\usepackage[titles]{tocloft}
+\usepackage[labelsep=period,font={stretch=1.2},labelfont=bf,textfont=bf,skip=6pt]{caption}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,shapes.misc,calc,fit,decorations.pathreplacing}
+% Kiểu khối dùng chung cho sơ đồ khối và lưu đồ (chữ cùng font, cỡ 13 với văn bản)
+\tikzset{
+  >=Stealth,
+  every node/.style={font=\normalsize},
+  khoi/.style={draw, rectangle, align=center, inner sep=4pt, minimum height=0.9cm},
+  nhom/.style={draw, dashed, rounded corners=3pt, inner sep=7pt},
+  nhan/.style={font=\normalsize\bfseries, inner sep=2pt},
+  batdau/.style={draw, rounded rectangle, align=center, inner sep=4pt, minimum height=0.8cm},
+  xuly/.style={draw, rectangle, align=center, inner sep=3pt, minimum height=0.85cm},
+  quyetdinh/.style={draw, diamond, aspect=2.8, align=center, inner sep=0.5pt},
+  vaora/.style={draw, trapezium, trapezium left angle=72, trapezium right angle=108, trapezium stretches body, align=center, inner sep=3pt, minimum height=0.85cm},
+  noi/.style={draw, circle, inner sep=1.5pt, minimum size=0.6cm},
+  tenre/.style={font=\normalsize, inner sep=2pt},
+}
+% Hình con: nhãn (a), (b) đặt dưới từng hình con, chữ thường, không đưa vào danh mục hình
+\captionsetup[sub]{labelformat=parens,labelsep=space,labelfont=normalfont,
+  textfont=normalfont,skip=4pt}
+% Trích dẫn kiểu APA (Tác giả, năm), dùng "và cộng sự" thay cho "et al."
+\usepackage[round,authoryear]{natbib}
+\usepackage[hidelinks,unicode]{hyperref}
+% Trích dẫn hiển thị dạng chữ thường, không tạo liên kết
+\makeatletter
+\AddToHook{begindocument/end}{%
+  \def\hyper@natlinkstart#1{}%
+  \def\hyper@natlinkend{}%
+  \def\hyper@natlinkbreak#1#2{#1}%
+  \def\hyper@natanchorstart#1{}%
+  \def\hyper@natanchorend{}}
+\makeatother
+\usepackage{xurl}
+\usepackage{pdfpages}
+
+% Đánh dấu chỗ cần bổ sung (tô vàng). Dùng ulem thay cho \hl của gói soul,
+% vì \hl làm rơi ký tự có dấu tiếng Việt khi biên dịch bằng XeLaTeX.
+\newcommand{\cansua}[1]{\bgroup\markoverwith{\textcolor{yellow}{\rule[-.5ex]{.1pt}{2.6ex}}}\ULon{#1}}
+
+% ---------- Tên các mục bằng tiếng Việt ----------
+\renewcommand{\contentsname}{MỤC LỤC}
+\renewcommand{\listfigurename}{DANH MỤC HÌNH VẼ}
+\renewcommand{\listtablename}{DANH MỤC BẢNG BIỂU}
+\renewcommand{\bibname}{TÀI LIỆU THAM KHẢO}
+\renewcommand{\figurename}{Hình}
+\renewcommand{\tablename}{Bảng}
+\renewcommand{\appendixname}{PHỤ LỤC}
+
+% Bảng: chú thích phía trên, dấu hai chấm. Hình: chú thích phía dưới, dấu chấm.
+\captionsetup[table]{labelsep=period,position=top}
+\captionsetup[figure]{labelsep=period}
+\renewcommand{\thefigure}{\thechapter.\arabic{figure}}
+\renewcommand{\thetable}{\thechapter.\arabic{table}}
+\renewcommand{\theequation}{\thechapter.\arabic{equation}}
+
+% ---------- Tiêu đề chương, mục ----------
+% Không để tiêu đề mục rơi sát cuối trang: nếu phần còn lại của trang
+% thấp hơn ngưỡng này, tiêu đề được chuyển sang trang mới.
+\renewcommand{\bottomtitlespace}{0.2\textheight}
+% Không để một dòng lẻ của đoạn văn nằm riêng ở đầu hoặc cuối trang
+\widowpenalty=10000
+\clubpenalty=10000
+\displaywidowpenalty=10000
+% Hình, bảng được đặt linh hoạt để văn bản lấp đầy trang, tránh khoảng trống
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.75}
+\setcounter{secnumdepth}{2}   % tối đa 3 cấp: 1, 1.1, 1.1.1
+\setcounter{tocdepth}{2}
+\newcommand{\nhanchuong}{CHƯƠNG}
+\titleformat{\chapter}[block]
+  {\centering\bfseries\fontsize{14}{18}\selectfont}
+  {\nhanchuong~\thechapter.}{0.5em}{\MakeUppercase}
+\titleformat{name=\chapter,numberless}[block]
+  {\centering\bfseries\fontsize{16}{20}\selectfont}{}{0pt}{\MakeUppercase}
+\titlespacing*{\chapter}{0pt}{0pt}{24pt}
+\titleformat{\section}{\bfseries\fontsize{13}{16}\selectfont}{\thesection}{0.8em}{}
+\titlespacing*{\section}{0pt}{12pt}{6pt}
+\titleformat{\subsection}{\bfseries\fontsize{13}{16}\selectfont}{\thesubsection}{0.8em}{}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+% Tiêu đề mục luôn đi kèm ít nhất vài dòng nội dung: nếu cuối trang còn ít hơn
+% 6 dòng thì tiêu đề được chuyển sang trang sau.
+\let\oldsection\section
+\renewcommand{\section}{\Needspace{6\baselineskip}\oldsection}
+\let\oldsubsection\subsection
+\renewcommand{\subsection}{\Needspace{6\baselineskip}\oldsubsection}
+
+% ---------- Mục lục, danh mục hình, bảng ----------
+\renewcommand{\cfttoctitlefont}{\hfill\bfseries\fontsize{16}{20}\selectfont}
+\renewcommand{\cftaftertoctitle}{\hfill}
+\renewcommand{\cftloftitlefont}{\hfill\bfseries\fontsize{16}{20}\selectfont}
+\renewcommand{\cftafterloftitle}{\hfill}
+\renewcommand{\cftlottitlefont}{\hfill\bfseries\fontsize{16}{20}\selectfont}
+\renewcommand{\cftafterlottitle}{\hfill}
+\setlength{\cftbeforetoctitleskip}{0pt}
+\setlength{\cftbeforeloftitleskip}{0pt}
+\setlength{\cftbeforelottitleskip}{0pt}
+\renewcommand{\cftchapfont}{\bfseries}
+\renewcommand{\cftchappagefont}{\bfseries}
+\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}
+\renewcommand{\cftchappresnum}{\nhanchuong~}
+\renewcommand{\cftchapaftersnum}{.}
+\setlength{\cftchapnumwidth}{2.6cm}
+\setlength{\cftsecindent}{0.4cm}
+\setlength{\cftsecnumwidth}{1.0cm}
+\setlength{\cftsubsecindent}{1.4cm}
+\setlength{\cftsubsecnumwidth}{1.3cm}
+\renewcommand{\cftfigpresnum}{Hình~}
+\renewcommand{\cftfigaftersnum}{.}
+\setlength{\cftfignumwidth}{1.9cm}
+\setlength{\cftfigindent}{0pt}
+\renewcommand{\cfttabpresnum}{Bảng~}
+\renewcommand{\cfttabaftersnum}{.}
+\setlength{\cfttabnumwidth}{2.0cm}
+\setlength{\cfttabindent}{0pt}
+% Danh mục hình, bảng xuất hiện trong mục lục
+\makeatletter
+\let\oldlistoffigures\listoffigures
+\renewcommand{\listoffigures}{\clearpage\phantomsection\addcontentsline{toc}{chapter}{\listfigurename}\oldlistoffigures}
+\let\oldlistoftables\listoftables
+\renewcommand{\listoftables}{\clearpage\phantomsection\addcontentsline{toc}{chapter}{\listtablename}\oldlistoftables}
+\makeatother
+
+% ---------- Header / footer ----------
+% Phần đầu: số trang La Mã ở giữa chân trang
+\fancypagestyle{phandau}{%
+  \fancyhf{}\renewcommand{\headrulewidth}{0pt}%
+  \fancyhead[C]{\thepage}}
+% Nội dung: tiêu đề + số trang ở đầu trang, tên đề tài ở chân trang
+\fancypagestyle{noidung}{%
+  \fancyhf{}%
+  \fancyhead[C]{\bfseries\small \loaidoan\\ Trang \thepage}%
+  \renewcommand{\headrulewidth}{0.5pt}%
+  \fancyfoot[L]{\bfseries\small \tendetaithuong}%
+  \renewcommand{\footrulewidth}{0.5pt}}
+% Trang mở đầu chương (kiểu plain): phần đầu giống phandau,
+% từ phần nội dung trở đi giống noidung (xem \batdaunoidung)
+\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyhead[C]{\thepage}}
+\newcommand{\batdaunoidung}{%
+  \cleardoublepage
+  \pagenumbering{arabic}%
+  \pagestyle{noidung}%
+  \fancypagestyle{plain}{\fancyhf{}%
+    \fancyhead[C]{\bfseries\small \loaidoan\\ Trang \thepage}%
+    \renewcommand{\headrulewidth}{0.5pt}%
+    \fancyfoot[L]{\bfseries\small \tendetaithuong}%
+    \renewcommand{\footrulewidth}{0.5pt}}}
+
+% ---------- Tài liệu tham khảo ----------
+\setlength{\bibhang}{1.27cm}
+\setlength{\bibsep}{4pt}
+% Danh mục chia theo ngôn ngữ; hiện toàn bộ tài liệu là tiếng nước ngoài.
+% Khi có tài liệu tiếng Việt, cần thêm mục "Tiếng Việt" đứng trước.
+\renewcommand{\bibsection}{\raggedright\chapter*{\bibname}\phantomsection\addcontentsline{toc}{chapter}{\bibname}%
+  \noindent\textbf{Tiếng nước ngoài}\par}
+
+% ---------- Phụ lục ----------
+\newcommand{\batdauphuluc}{%
+  \clearpage
+  \appendix
+  % Số trang phụ lục theo mẫu: Trang A-1, A-2, ...
+  \setcounter{page}{1}%
+  \renewcommand{\thepage}{\Alph{chapter}-\arabic{page}}%
+  \renewcommand{\nhanchuong}{PHỤ LỤC}%
+  \addtocontents{toc}{\protect\renewcommand{\protect\cftchappresnum}{PHỤ LỤC~}\protect\setlength{\protect\cftchapnumwidth}{3.3cm}}%
+  \fancypagestyle{noidung}{\fancyhf{}%
+    \fancyhead[C]{\bfseries\small \loaidoan\\ Trang \thepage}%
+    \renewcommand{\headrulewidth}{0.5pt}%
+    \fancyfoot[L]{\bfseries\small \tendetaithuong}\renewcommand{\footrulewidth}{0.5pt}}%
+  \fancypagestyle{plain}{\fancyhf{}%
+    \fancyhead[C]{\bfseries\small \loaidoan\\ Trang \thepage}%
+    \renewcommand{\headrulewidth}{0.5pt}%
+    \fancyfoot[L]{\bfseries\small \tendetaithuong}\renewcommand{\footrulewidth}{0.5pt}}%
+  \renewcommand{\thepage}{\thechapter-\arabic{page}}%
+  \pagestyle{noidung}\setcounter{page}{1}}
+
+% ---------- Macro tiện dụng ----------
+% Chèn hình: nếu file có trong figures/ thì hiện hình, chưa có thì hiện khung tô vàng.
+% \hinh{tên file}{độ rộng (phần của \textwidth)}{chú thích}{nhãn}{mô tả khi chưa có hình}
+\newcommand{\hinh}[5]{%
+  \begin{figure}[!htbp]\centering
+  \IfFileExists{figures/#1}%
+    {\includegraphics[width=#2\textwidth]{#1}}%
+    {\fbox{\parbox{0.75\textwidth}{\centering\vspace{1.2cm}\cansua{#5}\vspace{1.2cm}}}}%
+  \caption{#3}\label{#4}
+  \end{figure}}
+% Hình con (a), (b) trong cùng một hình:
+% \hinhcon{tên file}{tỉ lệ chiều rộng}{tên hình con}{nhãn}{ghi chú khi chưa có file}
+% Dùng bên trong \begin{figure}...\end{figure}; mỗi hình con một dòng, căn giữa.
+\newcommand{\hinhcon}[5]{%
+  \begin{subfigure}{\textwidth}\centering
+  \IfFileExists{figures/#1}%
+    {\includegraphics[width=#2\textwidth]{#1}}%
+    {\fbox{\parbox{0.75\textwidth}{\centering\vspace{1.2cm}\cansua{#5}\vspace{1.2cm}}}}%
+  \caption{#3}\label{#4}
+  \end{subfigure}}
+% Cột căn giữa có độ rộng cố định
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\tieude}[1]{\textbf{#1}}
+
+% Giải thích ký hiệu ngay sau công thức, mỗi ký hiệu một dòng kèm đơn vị:
+% \begin{kyhieu} $T$ & thông lượng (KB/s);\\ ... \end{kyhieu}
+\newenvironment{kyhieu}
+  {\par\noindent trong đó:\par\nopagebreak\noindent
+   \begin{tabular}{@{\hspace{1.27cm}}p{1.4cm}@{là\ \ }p{\dimexpr\textwidth-3.6cm\relax}@{}}}
+  {\end{tabular}\par}
+
+% Gạch đầu dòng: dùng dấu gạch ngang thay cho dấu chấm tròn ở mọi cấp
+\setlist[itemize,1]{label=--}
+\setlist[itemize,2]{label=--}
+\setlist[itemize,3]{label=--}
+\setlist[itemize,4]{label=--}

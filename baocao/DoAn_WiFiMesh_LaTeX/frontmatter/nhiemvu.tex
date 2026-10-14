@@ -1,0 +1,11 @@
+% ================= PHIẾU NHIỆM VỤ =================
+% Khi có bản scan phiếu nhiệm vụ có chữ ký của GVHD, lưu thành figures/nhiemvu.pdf;
+% trang scan sẽ tự thay cho trang tiêu đề bên dưới.
+\IfFileExists{figures/nhiemvu.pdf}{%
+  \includepdf[pages=-,pagecommand={\thispagestyle{phandau}}]{figures/nhiemvu.pdf}%
+}{%
+  \clearpage
+  \begin{center}
+  {\fontsize{16}{20}\selectfont\bfseries NHIỆM VỤ \MakeUppercase{\loaidoanthuong}\par}
+  \end{center}
+}

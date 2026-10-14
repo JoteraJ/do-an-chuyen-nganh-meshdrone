@@ -1,0 +1,13 @@
+% ================= TÓM TẮT =================
+\clearpage
+\begin{center}
+{\fontsize{16}{20}\selectfont\bfseries \tendetai\\[0.4cm] TÓM TẮT\par}
+\end{center}
+\vspace{0.3cm}
+Đồ án trình bày quá trình thiết kế, thi công và thử nghiệm một mạng WiFi Mesh dùng vi điều khiển ESP32 để truyền ảnh JPEG từ các node mô phỏng drone và robot về một trạm giám sát mà không cần bộ định tuyến, Internet hay mạng di động. Hệ thống gồm một node gốc (Root) dùng board ESP32 DevKitC nối với máy tính và ba node lá (Leaf) dùng board ESP32-CAM với camera OV3660 chạy pin 18650, liên kết với nhau bằng thư viện painlessMesh theo cấu trúc cây tự tổ chức. Các node được đặt trên mặt đất hoặc cầm tay khi thử nghiệm, vì vậy đồ án là một mô hình truyền thông đa chặng theo hướng mạng ad-hoc cho thiết bị bay, chưa được thử nghiệm trên drone đang bay.
+
+Mỗi ảnh JPEG chụp tại Leaf được chia thành các chunk mang tối đa 1024 byte dữ liệu kèm header 16 byte, gồm định danh node, định danh khung, chỉ số chunk và mốc thời gian chụp. Leaf học địa chỉ của Root qua bản tin beacon và gửi chunk thẳng tới Root; Root ghép song song ảnh của nhiều Leaf bằng bốn vùng đệm có bitmap và thời gian chờ, sau đó đóng khung nhị phân có mã CRC16 và gửi lên máy tính qua UART 921600 bps. Middleware Node.js chuyển dữ liệu qua Socket.IO tới Web Dashboard để hiển thị ảnh, FPS, thông lượng, tỉ lệ hủy khung, topology, RSSI, độ trễ và thời gian tự phục hồi.
+
+Với một Leaf ở chu kỳ chụp 600 ms, hệ thống đạt 1,67 $\pm$ 0,40 khung/giây và không có khung bị hủy. Khi hai Leaf gửi đồng thời trong lúc Root chỉ có một vùng đệm ghép, tỉ lệ hủy khung lên tới khoảng 82 \%; sau khi tăng lên bốn vùng đệm, FPS tổng ở chu kỳ 300 ms tăng gần tuyến tính lên khoảng 10 khung/giây với ba Leaf, nhưng toàn mạng ngừng truyền dữ liệu sau 6–26 giây do Root quá tải việc ghi UART. Khi tăng chu kỳ chụp lên 600 ms, ba Leaf chạy liên tục khoảng 2 phút với FPS tổng 4,85 $\pm$ 0,96 khung/giây. Đồ án cũng bổ sung watchdog, bảo vệ heap, ghi UART không chặn và gửi lệch pha giữa các Leaf; thời gian tự phục hồi đo được còn phân tán từ 885 đến 32528 ms nên chưa được dùng làm kết quả.
+
+\noindent\textbf{Từ khóa:} WiFi Mesh, ESP32-CAM, painlessMesh, phân mảnh ảnh, tự phục hồi, Web Dashboard.

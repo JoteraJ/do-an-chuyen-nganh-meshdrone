@@ -1,0 +1,53 @@
+% Hình 3.5. Lưu đồ nhận và ghép ảnh tại Root (hàm receive_and_reassemble)
+\begin{tikzpicture}[node distance=0.22cm, quyetdinh/.append style={aspect=3.4}]
+\node[batdau] (s) {Bắt đầu: receivedCallback(from, msg)};
+\node[quyetdinh, below=of s] (d1) {Bản tin điều khiển?};
+\node[xuly, below=0.5cm of d1, text width=8.4cm] (p1) {Giải mã Base64, tách header và payload};
+\node[quyetdinh, below=of p1] (d2) {Gói hợp lệ?};
+\node[quyetdinh, below=0.5cm of d2] (d3) {Khung đã có vùng đệm?};
+\node[quyetdinh, below=0.5cm of d3] (d4) {Còn vùng đệm trống?};
+\node[xuly, below=0.5cm of d4, text width=8.4cm] (p5) {Hủy khung cũ của cùng node nếu có (supersede), cấp vùng đệm mới};
+\node[quyetdinh, below=of p5] (d5) {Chunk trùng?};
+\node[xuly, below=0.5cm of d5, text width=9.0cm] (p6) {Chép payload vào vùng đệm, đánh dấu bitmap, cập nhật thời điểm nhận chunk của node};
+\node[quyetdinh, below=of p6] (d6) {Đủ chunk?};
+\node[quyetdinh, below=0.5cm of d6] (d7) {Bộ đệm UART còn đủ chỗ?};
+\node[vaora, below=0.5cm of d7, text width=6.6cm] (io) {Ghi khung ảnh 0x01 ra UART};
+\node[xuly, below=of io, text width=8.4cm] (p8) {Giải phóng vùng đệm, cập nhật số khung thành công và độ trễ d};
+\node[batdau, below=of p8] (e) {Kết thúc};
+\coordinate (bus) at (8.5,0);
+% Nhánh phụ bên phải
+\node[xuly, text width=2.6cm] (r1) at (d1 -| 6.6,0) {Xử lý bản tin điều khiển};
+\node[xuly, text width=2.6cm] (r2) at (d2 -| 6.6,0) {Bỏ gói};
+\node[xuly, text width=2.6cm] (r4) at (d4 -| 6.6,0) {Loại khung cũ nhất (LRU)};
+\node[xuly, text width=2.6cm] (r5) at (d5 -| 6.6,0) {Bỏ qua chunk};
+\node[xuly, text width=2.6cm] (r7) at (d7 -| 6.6,0) {Bỏ khung ảnh};
+% Luồng chính
+\draw[->] (s) -- (d1);
+\draw[->] (d1) -- node[right, tenre] {Sai} (p1);
+\draw[->] (p1) -- (d2);
+\draw[->] (d2) -- node[right, tenre] {Đúng} (d3);
+\draw[->] (d3) -- node[right, tenre] {Sai} (d4);
+\draw[->] (d4) -- node[right, tenre] {Đúng} (p5);
+\draw[->] (p5) -- (d5);
+\draw[->] (d5) -- node[right, tenre] {Sai} (p6);
+\draw[->] (p6) -- (d6);
+\draw[->] (d6) -- node[right, tenre] {Đúng} (d7);
+\draw[->] (d7) -- node[right, tenre] {Đúng} (io);
+\draw[->] (io) -- (p8);
+\draw[->] (p8) -- (e);
+% Nhánh phụ
+\draw[->] (d1.east) -- node[above, tenre] {Đúng} (r1.west);
+\draw[->] (d2.east) -- node[above, tenre] {Sai} (r2.west);
+\draw[->] (d4.east) -- node[above, tenre] {Sai} (r4.west);
+\draw[->] (r4.south) |- (p5.east);
+\draw[->] (d5.east) -- node[above, tenre] {Đúng} (r5.west);
+\draw[->] (d7.east) -- node[above, tenre] {Sai} (r7.west);
+\draw[->] (r7.south) |- (p8.east);
+\draw (r1.east) -- (r1.east -| bus);
+\draw (r2.east) -- (r2.east -| bus);
+\draw (r5.east) -- (r5.east -| bus);
+\draw (d6.east) -- node[above, pos=0.3, tenre] {Sai} (d6.east -| bus);
+\draw[->] (r1.east -| bus) |- (e.east);
+% Đã có vùng đệm: bỏ qua bước cấp vùng đệm
+\draw[->] (d3.west) -- node[above, tenre] {Đúng} ++(-1.4,0) |- ($(p5.south)!0.5!(d5.north)$);
+\end{tikzpicture}

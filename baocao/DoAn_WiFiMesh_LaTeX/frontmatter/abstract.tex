@@ -1,0 +1,13 @@
+% ================= ABSTRACT =================
+\clearpage
+\begin{center}
+{\fontsize{16}{20}\selectfont\bfseries \tendetaitienganh\\[0.4cm] ABSTRACT\par}
+\end{center}
+\vspace{0.3cm}
+This project presents the design, implementation and testing of a WiFi mesh network built on ESP32 microcontrollers that relays JPEG images from nodes emulating drones and robots to a monitoring station without any router, Internet access or cellular network. The system consists of one ESP32 DevKitC Root node attached to a computer and three battery-powered ESP32-CAM OV3660 Leaf nodes, connected by the painlessMesh library as a self-organizing tree. The nodes were placed on the ground or carried by hand during the tests, so the work is a multi-hop communication model oriented towards flying ad-hoc networks rather than a deployment on flying drones.
+
+Each JPEG frame captured at a Leaf is fragmented into chunks carrying up to 1024 bytes of image data and a 16-byte header with the node ID, frame ID, chunk index and capture timestamp. Each Leaf learns the Root address from a periodic beacon and sends its chunks directly to the Root, which reassembles frames from several Leaves in parallel using four buffers with bitmaps and timeouts, then wraps them in CRC16-protected binary frames sent to the computer over a 921600 bps UART link. A Node.js middleware forwards the data via Socket.IO to a Web Dashboard showing images, FPS, throughput, drop rate, topology, RSSI, latency and self-healing time.
+
+With one Leaf at a 600 ms capture interval, the system reaches 1.67 $\pm$ 0.40 frames per second with no dropped frames. With two Leaves and a single reassembly buffer at the Root, about 82 \% of the frames are dropped; with four buffers and a 300 ms interval, the aggregate frame rate grows almost linearly to about 10 frames per second with three Leaves, but the whole network stops delivering data after 6–26 seconds because the Root is overloaded by UART output. At a 600 ms interval, the three-Leaf network runs continuously for about 2 minutes at 4.85 $\pm$ 0.96 frames per second. Watchdogs, heap protection, non-blocking UART output and time-slotted transmission were also added, while the measured self-healing times still range from 885 to 32528 ms and are not yet used as a result.
+
+\noindent\textbf{Keywords:} WiFi mesh, ESP32-CAM, painlessMesh, image fragmentation, self-healing, web dashboard.
